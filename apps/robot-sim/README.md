@@ -15,19 +15,27 @@ pnpm --filter @irobot/robot-sim dev
 语音识别（STT）与合成（TTS）用浏览器原生 **Web Speech API**，**零外部 API、零密钥**。
 语音需在 **Chrome / Edge** 中使用；任何浏览器都可用输入框打字。
 
-## 认知层：本机 claude CLI 常驻 Agent
+## 认知层：三档 Agent 后端
 
-若本机装有 `claude` CLI，服务启动时拉起一个**常驻 Agent 进程**（页面右上角标识
-`Agent: claude 常驻 (haiku)`）；否则回退到规则式 NLU。二者产出**完全同形**的声明式提案，
-下游 Orchestrator / 状态机 / 安全校验不变——这正是"LLM 只提议、确定性层处置"。
+三种后端产出**完全同形**的声明式提案（NluResult），下游 Orchestrator / 状态机 / 安全校验
+不变——这正是"LLM 只提议、确定性层处置"。页面右上角显示当前后端。
 
-**为什么常驻**：进程用 `--input-format stream-json --output-format stream-json` 长驻，
-多轮对话由进程原生保持，prompt 缓存跨轮复用（首轮建 ~31k token 缓存，之后 cache_read
-命中）。实测每轮延迟从冷启的约 11s 降到热缓存的约 7s，且成本大幅下降。多轮指代原生
-生效，例如先“往前走一米”、再“再往前挪半米”会被正确理解为 0.5 米。
+| 后端 | 触发 | 延迟 | 说明 |
+| --- | --- | --- | --- |
+| **API** 直连 | 有 `ANTHROPIC_API_KEY` | 近实时（亚秒~1s） | 直连 Messages API，强制 emit_decision 工具，system+工具 prompt 缓存 |
+| **claude 常驻** | 有 `claude` CLI | 热缓存约 7s | 长驻 CLI 进程（stream-json），缓存跨轮复用 |
+| **规则式 NLU** | 兜底 | 即时 | 关键词解析；上面两者不可用/失败时回退 |
 
-常驻进程串行处理（一次一轮）；单轮超时（默认 30s）或进程崩溃会自动重启并对当轮返回
-null，由 Session 回退规则式 NLU（fail-closed，不阻塞对话）。
+**自动选择**（`IROBOT_AGENT=auto`，默认）：有 API key 用 API；否则有 CLI 用常驻；否则规则式。
+可用 `IROBOT_AGENT=api|claude|rules` 强制。任一后端出错/超时都 fail-closed 回退规则式，
+对话不中断。多轮指代原生生效（“往前走一米”后“再往前挪半米”→0.5 米）。
+
+### 环境变量
+
+- `IROBOT_AGENT`：`auto`(默认) / `api` / `claude` / `rules`。
+- `ANTHROPIC_API_KEY`：启用 API 后端。`ANTHROPIC_BASE_URL` 可指向兼容端点。
+- `IROBOT_API_MODEL`：API 后端完整模型 id（默认按别名解析到 `claude-haiku-4-5-20251001`）。
+- `IROBOT_AGENT_MODEL`：`haiku`(默认) / `sonnet` / `opus` / `fable`，两后端共用别名。
 
 LLM 让对话自然：“麻烦帮我到二号那边去一趟”“现在电池情况怎么样”这类口语化、无关键词的
 说法，规则式接不住，LLM 能正确映射为提案。即便 LLM 幻觉出不存在的能力，也会被
@@ -59,9 +67,10 @@ Orchestrator `REJECTED`——安全边界不依赖模型。
 
 | 演示组件 | 架构角色 | 说明 |
 | --- | --- | --- |
-| `agent-resident.ts` | 认知慢环（常驻 LLM Agent） | 长驻 claude 进程，stream-json 双向流，缓存跨轮复用 |
-| `agent-claude.ts` | Agent 共享逻辑 | system prompt、输出 schema、结构化输出映射（也供一次性调用） |
-| `nlu.ts` | 认知慢环（回退） | 规则式中文意图，CLI 不可用/超时时兜底；与 LLM 输出同形 |
+| `agent-api.ts` | 认知慢环（API 后端） | 直连 Messages API，强制工具 + prompt 缓存，近实时 |
+| `agent-resident.ts` | 认知慢环（常驻 CLI 后端） | 长驻 claude 进程，stream-json 双向流，缓存跨轮复用 |
+| `agent-claude.ts` | Agent 共享逻辑 | system prompt、输出 schema、结构化输出映射、CLI 探测 |
+| `nlu.ts` | 认知慢环（回退） | 规则式中文意图，LLM 不可用/超时时兜底；与 LLM 输出同形 |
 | `orchestrator.ts` | Command Orchestrator | 提案校验、确定性前置条件、安全等级处置、状态机守卫 |
 | `sim-robot.ts` | Edge Runtime + 设备物理 | 权威状态源；执行动作、流式 feedback、急停/取消即时生效 |
 | `capabilities.ts` | Capability Manifest | 经 capability-schema 校验，与冻结契约一致 |

@@ -5,6 +5,13 @@ import { parseIntent, type NluResult } from "./nlu.js";
 import { CAPABILITIES } from "./capabilities.js";
 import { claudeCliAvailable, type AgentWorldContext } from "./agent-claude.js";
 import { ResidentAgent } from "./agent-resident.js";
+import { ApiAgent, apiKeyAvailable } from "./agent-api.js";
+
+/** 认知慢环后端的统一接口。ApiAgent / ResidentAgent 都实现它。 */
+interface Agent {
+  ask(text: string, ctx: AgentWorldContext): Promise<NluResult | null>;
+  stop(): void;
+}
 
 export type SseMessage =
   | { kind: "hello"; telemetry: Telemetry; capabilities: string[]; agent: string }
@@ -25,8 +32,7 @@ export class Session {
   private readonly orchestrator: Orchestrator;
   private readonly subscribers = new Set<Subscriber>();
   private readonly history: Array<{ role: "user" | "agent"; text: string }> = [];
-  private useClaude = false;
-  private resident: ResidentAgent | null = null;
+  private agent: Agent | null = null;
   private agentName = "规则式 NLU";
 
   constructor() {
@@ -36,22 +42,24 @@ export class Session {
 
   async start(): Promise<void> {
     this.robot.start();
+    // 后端优先级：显式 mode 优先；auto 时优先 API（近实时），否则常驻 CLI，否则规则式。
     const mode = process.env.IROBOT_AGENT ?? "auto";
-    if (mode !== "rules") {
-      this.useClaude = await claudeCliAvailable();
+    const model = process.env.IROBOT_API_MODEL ?? process.env.IROBOT_AGENT_MODEL ?? "haiku";
+    if ((mode === "api" || mode === "auto") && apiKeyAvailable()) {
+      this.agent = new ApiAgent();
+      this.agentName = `API (${model})`;
+    } else if ((mode === "claude" || mode === "auto") && (await claudeCliAvailable())) {
+      const r = new ResidentAgent();
+      r.warmup();
+      this.agent = r;
+      this.agentName = `claude 常驻 (${process.env.IROBOT_AGENT_MODEL ?? "haiku"})`;
     }
-    if (this.useClaude) {
-      this.resident = new ResidentAgent();
-      this.resident.warmup(); // 启动即预热常驻进程
-    }
-    this.agentName = this.useClaude
-      ? `claude 常驻 (${process.env.IROBOT_AGENT_MODEL ?? "haiku"})`
-      : "规则式 NLU";
+    if (!this.agent) this.agentName = "规则式 NLU";
     console.log(`  Agent: ${this.agentName}`);
   }
   stop(): void {
     this.robot.stop();
-    this.resident?.stop();
+    this.agent?.stop();
   }
 
   subscribe(fn: Subscriber): () => void {
@@ -103,11 +111,11 @@ export class Session {
     this.broadcast({ kind: "transcript", role: "user", text });
     this.history.push({ role: "user", text });
 
-    // 认知慢环：优先常驻 LLM Agent，失败回退规则式 NLU（fail-closed，不阻塞）。
+    // 认知慢环：优先 LLM Agent，失败回退规则式 NLU（fail-closed，不阻塞）。
     let intent: NluResult | null = null;
-    if (this.resident) {
+    if (this.agent) {
       this.broadcast({ kind: "status", busy: true, label: "思考中…" });
-      intent = await this.resident.ask(text, this.worldContext());
+      intent = await this.agent.ask(text, this.worldContext());
       this.broadcast({ kind: "status", busy: false });
     }
     if (!intent) intent = parseIntent(text);
