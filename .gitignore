@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+*.tsbuildinfo
+
+# python
+__pycache__/
+*.pyc
+.venv/
+
+# ros2
+edge/ros2_ws/build/
+edge/ros2_ws/install/
+edge/ros2_ws/log/
+
+# runtime state (never commit device/action state)
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# secrets — never commit
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# research baselines (kept locally, not part of product repo history)
+/claude-code/
+/hermes-agent/
+/openclaw/
+
+# claude-mem session context (regenerated per session)
+/AGENTS.md

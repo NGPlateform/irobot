@@ -1,0 +1,20 @@
+{
+  "name": "irobot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "智能设备与机器人对话执行系统 — 慢速认知环 + 快速确定性控制环",
+  "type": "module",
+  "packageManager": "pnpm@10.28.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^2.1.0"
+  }
+}

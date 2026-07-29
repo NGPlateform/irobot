@@ -1,0 +1,20 @@
+{
+  "name": "@irobot/action-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Action Envelope / Action Event / 动作状态机 v0.1 — 设备写动作的唯一协议。",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@irobot/policy-contract": "workspace:*",
+    "zod": "^3.24.0"
+  }
+}

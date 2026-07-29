@@ -1,0 +1,33 @@
+{
+  "commandId": "cmd_01J8ZX7QH2A0FE9M3N4KP5R6T7",
+  "idempotencyKey": "session-456:turn-12:tool-call-1",
+  "deviceId": "robot-001",
+  "capabilityId": "robot.navigation.navigate_relative",
+  "capabilityVersion": "1.0.0",
+  "arguments": {
+    "distanceM": 2,
+    "maxSpeedMps": 0.3
+  },
+  "expectedStateVersion": 1842,
+  "preconditions": [
+    { "path": "localization.healthy", "op": "==", "value": true },
+    { "path": "safety.estop", "op": "==", "value": false }
+  ],
+  "deadline": "2026-07-30T10:00:30.000Z",
+  "priority": 50,
+  "safetyClass": "S2_GUARDED",
+  "leaseEpoch": 72,
+  "actor": {
+    "type": "user",
+    "id": "user-123",
+    "sessionId": "session-456"
+  },
+  "traceId": "trace-789",
+  "modelSnapshot": {
+    "provider": "provider-name",
+    "model": "model-name",
+    "promptHash": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "toolCatalogVersion": "2026-07-30.1",
+    "policyVersion": "42"
+  }
+}
