@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iRobot 仿真控制台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div id="estop-banner" class="hidden">
+      ⚠ 已急停 — 所有动作已停止
+      <button id="clear-estop">解除急停</button>
+    </div>
+
+    <div class="app">
+      <section class="stage">
+        <header class="stage-head">
+          <h1>iRobot 仿真控制台</h1>
+          <span class="sub">语音 → 提案 → 执行 → 流式闭环</span>
+        </header>
+        <canvas id="world" width="760" height="620"></canvas>
+        <div class="readouts">
+          <div class="ro"><span class="k">状态</span><b id="ro-state">待命</b></div>
+          <div class="ro"><span class="k">电量</span><b id="ro-battery">–</b></div>
+          <div class="ro"><span class="k">坐标</span><b id="ro-pose">–</b></div>
+          <div class="ro"><span class="k">stateVersion</span><b id="ro-sv">–</b></div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="voice">
+          <button id="mic" class="mic" title="点按开始/停止语音">
+            <span class="dot"></span><span id="mic-label">按住说话</span>
+          </button>
+          <div class="typed">
+            <input id="text-in" type="text" placeholder="或在此输入指令，回车发送" />
+            <button id="send">发送</button>
+          </div>
+          <div class="controls">
+            <button id="cancel" class="ctl">取消动作</button>
+            <button id="estop" class="ctl danger">急停</button>
+          </div>
+          <p id="voice-note" class="note"></p>
+        </div>
+
+        <div class="col-head">对话</div>
+        <div id="transcript" class="transcript"></div>
+
+        <div class="col-head">动作事件</div>
+        <div id="actions" class="actions"></div>
+
+        <div class="hint">
+          试试：“前进两米”、“去一号站点”、“电量还有多少”、“返回充电”、“取消”、“急停”。
+        </div>
+      </aside>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

@@ -1,3 +1,4 @@
 packages:
   - platform/packages/*
   - platform/services/*
+  - apps/*

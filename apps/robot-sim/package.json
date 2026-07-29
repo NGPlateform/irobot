@@ -1,0 +1,21 @@
+{
+  "name": "@irobot/robot-sim",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "浏览器仿真机器人 + 语音对话 Web 界面。复用冻结协议包，演示语音→提案→执行→流式闭环。",
+  "scripts": {
+    "dev": "tsx server/main.ts",
+    "start": "tsx server/main.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@irobot/action-protocol": "workspace:*",
+    "@irobot/capability-schema": "workspace:*",
+    "@irobot/policy-contract": "workspace:*",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.0"
+  }
+}
