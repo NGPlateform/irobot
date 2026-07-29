@@ -11,11 +11,22 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:plugin": "tsc -p tsconfig.plugin.json"
   },
   "dependencies": {
     "@irobot/action-protocol": "workspace:*",
     "@irobot/policy-contract": "workspace:*",
     "zod": "^3.24.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.24-beta.2"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": { "optional": true }
+  },
+  "openclaw": {
+    "extensions": ["./dist/openclaw-plugin.js"],
+    "compat": { "pluginApi": ">=2026.3.24-beta.2", "minGatewayVersion": "2026.3.24-beta.2" }
   }
 }

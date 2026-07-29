@@ -94,6 +94,25 @@ export class Session {
     if (!ok) this.broadcast({ kind: "reply", text: "当前没有正在执行的动作。" });
   }
 
+  /**
+   * 北向入口：执行来自 OpenClaw 插件的 Action Envelope（HTTP /v1/actions）。
+   * 事件同时流回 HTTP 调用方（onEvent）并广播到浏览器 SSE，让插件触发的动作也在地图可见。
+   */
+  async executeExternalEnvelope(
+    envelope: unknown,
+    onEvent: (ev: ActionEvent) => void,
+  ): Promise<ActionEvent> {
+    const capabilityId =
+      (envelope && typeof envelope === "object" && (envelope as { capabilityId?: string }).capabilityId) ||
+      "external";
+    this.broadcast({ kind: "transcript", role: "user", text: `（OpenClaw 插件动作：${capabilityId}）` });
+    return this.orchestrator.executeEnvelope(envelope, (ev) => {
+      onEvent(ev);
+      this.broadcast({ kind: "action", event: ev, capabilityId });
+      if (ev.state === "PENDING_APPROVAL") this.say("外部指令为高风险动作，请在界面确认。");
+    });
+  }
+
   /** 界面审批决策。 */
   approve(commandId: string, approved: boolean): void {
     const ok = this.orchestrator.resolveApproval(commandId, approved);

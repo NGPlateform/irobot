@@ -16,6 +16,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
+    "@irobot/gateway-adapter": "workspace:*",
     "tsx": "^4.19.0"
   }
 }

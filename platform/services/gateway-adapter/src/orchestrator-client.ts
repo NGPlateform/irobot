@@ -1,4 +1,4 @@
-import { ActionEvent, type ActionEnvelope } from "@irobot/action-protocol";
+import { ActionEvent, isTerminal, type ActionEnvelope } from "@irobot/action-protocol";
 
 /**
  * 外部 Command Orchestrator 的 HTTP 客户端。
@@ -68,7 +68,9 @@ export async function submitProposal(
     // fail-closed：任何无法解析为 ActionEvent 的行都视为协议违约。
     const event = ActionEvent.parse(JSON.parse(trimmed));
     events.push(event);
-    if (event.kind === "result") {
+    // 终态以 state 判定：SUCCEEDED/FAILED/CANCELLED 为 kind=result，但 REJECTED/EXPIRED
+    // 是 kind=state_changed，同样是终态，必须据此收尾，否则流会挂到结束才报错。
+    if (event.state && isTerminal(event.state)) {
       finalEvent = event;
     } else {
       opts.onFeedback?.(event);

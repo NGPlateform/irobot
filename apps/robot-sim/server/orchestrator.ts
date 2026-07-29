@@ -156,14 +156,38 @@ export class Orchestrator {
   }
 
   /**
-   * 处理一次提案。emit 流式发出全部 ActionEvent（含生命周期状态）。返回终态事件。
+   * 本地提案入口：分配 commandId 后走统一决策路径。emit 流式发出全部 ActionEvent。
    */
   async propose(
     proposal: Proposal,
     emit: (ev: ActionEvent) => void,
   ): Promise<ActionEvent> {
+    return this.runDecision(`cmd_${randomUUID()}`, proposal, emit);
+  }
+
+  /**
+   * 北向（OpenClaw 插件）入口：接收已构造的 Action Envelope。校验后走同一决策路径。
+   * 安全关键：capabilityId/arguments 取自 envelope，但 safetyClass 一律由本地 manifest
+   * 派生，绝不信任北向声明（纵深防御，安全不变量 §4.1）。
+   */
+  async executeEnvelope(
+    envelope: unknown,
+    emit: (ev: ActionEvent) => void,
+  ): Promise<ActionEvent> {
+    const e = parseActionEnvelope(envelope); // 不合规即抛错（fail-closed）
+    return this.runDecision(
+      e.commandId,
+      { capabilityId: e.capabilityId, arguments: e.arguments },
+      emit,
+    );
+  }
+
+  private async runDecision(
+    commandId: string,
+    proposal: Proposal,
+    emit: (ev: ActionEvent) => void,
+  ): Promise<ActionEvent> {
     const manifest = getCapability(proposal.capabilityId);
-    const commandId = `cmd_${randomUUID()}`;
 
     let current: ActionState = "PROPOSED";
     const to = (state: ActionState, payload: Record<string, unknown> = {}) => {

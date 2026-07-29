@@ -84,3 +84,57 @@ pnpm --filter @irobot/gateway-adapter test
 
 R01/R17 由"中/高未决"降为"已验证可行，走外部插件路线"。ADR-003 得到源码支撑。
 建议将 OpenClaw 集成路线在 G0 正式定为**外部 Tool 插件**（而非 fork 或窄 patch）。
+
+---
+
+## 真连接进展（2026-07-30 更新）
+
+在 Spike 之上又把"北向插件 ↔ 外部 Orchestrator"的**线级连接做成真实且可测**：
+
+- **robot-sim 现在是真正的外部 Command Orchestrator**：`apps/robot-sim` 暴露
+  `POST /v1/actions`，接收 Action Envelope，流式回 NDJSON ActionEvent，由真实
+  Orchestrator + SimRobot 驱动（`server/server.ts` + `orchestrator.executeEnvelope`）。
+- **端到端已测**：`server/openclaw-bridge.integration.test.ts` 让 OpenClaw 侧插件代码
+  （`@irobot/gateway-adapter` 的 `executeProposeAction`/`submitProposal`）经**真实 HTTP**
+  打到 robot-sim，机器人真的移动、流式回传、终态正确。
+- **纵深防御已测**：Orchestrator 的 `safetyClass` 一律由本地 manifest 派生，忽略北向
+  声明——谎报 S0 的导航仍按 S2 前置条件校验，急停下 REJECTED。
+- **活体验证**：`curl -d @fixtures/navigate_relative.envelope.json .../v1/actions` 返回
+  完整 PROPOSED→…→feedback 事件流。
+
+### 唯一未覆盖的一跳
+
+"OpenClaw 网关进程加载插件、模型发起 `propose_action` 工具调用"这一跳需要一台**合规主机**
+运行真网关。本沙箱不满足其运行时要求：
+
+- Node 22.21.1 < OpenClaw 要求的 **≥22.22.3**；
+- OpenClaw 665M 仓库未安装依赖（`pnpm install` 体量大）；
+- 无模型 provider 凭据（且无捆绑的 keyless 后端）。
+
+该跳的 seam 已在上文源码级证明，非未知项。
+
+### 合规主机 runbook（完成真连接）
+
+```bash
+# 0) 主机需 Node ≥22.22.3、pnpm 11；准备一个模型 provider（API key 或自建 CLI backend 插件）
+
+# 1) 构建并打包本插件
+cd platform/services/gateway-adapter
+pnpm build:plugin                 # 产出 dist/openclaw-plugin.js（需 openclaw 作为 peer 已装）
+npm pack --pack-destination /tmp
+
+# 2) 安装到 OpenClaw
+openclaw plugins install npm-pack:/tmp/irobot-gateway-adapter-*.tgz --force
+openclaw plugins inspect irobot-gateway-adapter --runtime --json
+
+# 3) 配置外部 Orchestrator 端点（指向运行中的 robot-sim）
+#    openclaw.json 中该插件 config：{ "orchestratorUrl": "http://<robot-sim-host>:8899" }
+
+# 4) 允许工具并启动
+#    tools.allow: ["propose_action"]
+#    启动 robot-sim（外部 Orchestrator）：pnpm --filter @irobot/robot-sim dev
+#    在任一渠道对 OpenClaw 说“前进两米”，模型将调用 propose_action → robot-sim → 机器人执行
+```
+
+keyless 选项：按 `docs/plugins/cli-backend-plugins.md` 写一个把本机 `claude` CLI 映射为
+模型后端的 CLI backend 插件，即可无 API key 驱动 OpenClaw 的认知层。

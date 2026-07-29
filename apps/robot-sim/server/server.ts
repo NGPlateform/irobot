@@ -59,6 +59,29 @@ export function createSimServer(session: Session) {
       return;
     }
 
+    // 北向 Command Orchestrator 契约：OpenClaw 插件 POST 一个 Action Envelope，
+    // 服务端流式回 NDJSON ActionEvent（与 gateway-adapter/orchestrator-client 对齐）。
+    if (method === "POST" && url === "/v1/actions") {
+      const body = await readBody(req);
+      let envelope: unknown;
+      try {
+        envelope = JSON.parse(body || "{}");
+      } catch {
+        res.writeHead(400, { "content-type": "application/json" }).end('{"error":"bad json"}');
+        return;
+      }
+      res.writeHead(200, { "content-type": "application/x-ndjson" });
+      try {
+        await session.executeExternalEnvelope(envelope, (ev) =>
+          res.write(JSON.stringify(ev) + "\n"),
+        );
+      } catch (err) {
+        res.write(JSON.stringify({ kind: "diagnostic", error: String(err) }) + "\n");
+      }
+      res.end();
+      return;
+    }
+
     if (method === "POST" && url === "/converse") {
       const body = await readBody(req);
       const text = String(JSON.parse(body || "{}").text ?? "").slice(0, 500);
