@@ -13,7 +13,7 @@ import { CAPABILITIES } from "./capabilities.js";
  * CLI 不可用/超时/输出不合规时返回 null，由调用方回退到规则式 NLU（fail-closed，不阻塞）。
  */
 
-const OUTPUT_SCHEMA = {
+export const OUTPUT_SCHEMA = {
   type: "object",
   additionalProperties: false,
   required: ["kind", "say"],
@@ -57,7 +57,7 @@ function capabilityCatalog(): string {
     .join("\n");
 }
 
-function systemPrompt(): string {
+export function systemPrompt(): string {
   return [
     "你是一台低速室内移动机器人的控制助手。把用户的自然语言转成一个结构化动作提案，绝不虚构机器人做不到的事。",
     "只能使用下列能力，capabilityId 必须逐字精确：",
@@ -86,6 +86,32 @@ function userPrompt(text: string, ctx: AgentWorldContext): string {
     .join("\n");
 }
 
+/** 动态状态一行，随每轮用户消息发送（常驻进程记住对话，故无需再带历史）。 */
+export function stateLine(ctx: AgentWorldContext, text: string): string {
+  return [
+    `[状态] 电量${ctx.battery}%${ctx.charging ? "(充电中)" : ""}，位置(${ctx.pose.x.toFixed(1)},${ctx.pose.y.toFixed(1)})，急停${ctx.estop ? "已触发" : "未触发"}，站点：${ctx.stations.join("、")}`,
+    `[用户] ${text}`,
+  ].join("\n");
+}
+
+/** 把结构化候选映射为 NluResult。null 表示不合规（fail-closed）。 */
+export function mapAgentOutput(candidate: unknown): NluResult | null {
+  const parsed = AgentOutput.safeParse(candidate);
+  if (!parsed.success) return null;
+  const o = parsed.data;
+  if (o.kind === "control") {
+    return { kind: "control", control: o.control ?? "cancel", reply: o.say };
+  }
+  if (o.kind === "proposal" && o.capabilityId) {
+    return {
+      kind: "proposal",
+      proposal: { capabilityId: o.capabilityId, arguments: o.arguments ?? {} },
+      reply: o.say,
+    };
+  }
+  return { kind: "smalltalk", reply: o.say };
+}
+
 /** 从 `claude -p --output-format json` 的 stdout 解析出 NluResult。纯函数，可测。 */
 export function parseClaudeEnvelope(stdout: string): NluResult | null {
   let envelope: unknown;
@@ -106,21 +132,7 @@ export function parseClaudeEnvelope(stdout: string): NluResult | null {
       return null;
     }
   }
-  const parsed = AgentOutput.safeParse(candidate);
-  if (!parsed.success) return null;
-  const o = parsed.data;
-
-  if (o.kind === "control") {
-    return { kind: "control", control: o.control ?? "cancel", reply: o.say };
-  }
-  if (o.kind === "proposal" && o.capabilityId) {
-    return {
-      kind: "proposal",
-      proposal: { capabilityId: o.capabilityId, arguments: o.arguments ?? {} },
-      reply: o.say,
-    };
-  }
-  return { kind: "smalltalk", reply: o.say };
+  return mapAgentOutput(candidate);
 }
 
 /** 调用 claude CLI。失败/超时返回 null（调用方回退规则式 NLU）。 */

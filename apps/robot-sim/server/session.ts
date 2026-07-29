@@ -3,11 +3,8 @@ import { SimRobot, type Telemetry } from "./sim-robot.js";
 import { Orchestrator, type Proposal } from "./orchestrator.js";
 import { parseIntent, type NluResult } from "./nlu.js";
 import { CAPABILITIES } from "./capabilities.js";
-import {
-  runClaudeAgent,
-  claudeCliAvailable,
-  type AgentWorldContext,
-} from "./agent-claude.js";
+import { claudeCliAvailable, type AgentWorldContext } from "./agent-claude.js";
+import { ResidentAgent } from "./agent-resident.js";
 
 export type SseMessage =
   | { kind: "hello"; telemetry: Telemetry; capabilities: string[]; agent: string }
@@ -29,6 +26,7 @@ export class Session {
   private readonly subscribers = new Set<Subscriber>();
   private readonly history: Array<{ role: "user" | "agent"; text: string }> = [];
   private useClaude = false;
+  private resident: ResidentAgent | null = null;
   private agentName = "规则式 NLU";
 
   constructor() {
@@ -42,13 +40,18 @@ export class Session {
     if (mode !== "rules") {
       this.useClaude = await claudeCliAvailable();
     }
+    if (this.useClaude) {
+      this.resident = new ResidentAgent();
+      this.resident.warmup(); // 启动即预热常驻进程
+    }
     this.agentName = this.useClaude
-      ? `claude CLI (${process.env.IROBOT_AGENT_MODEL ?? "haiku"})`
+      ? `claude 常驻 (${process.env.IROBOT_AGENT_MODEL ?? "haiku"})`
       : "规则式 NLU";
     console.log(`  Agent: ${this.agentName}`);
   }
   stop(): void {
     this.robot.stop();
+    this.resident?.stop();
   }
 
   subscribe(fn: Subscriber): () => void {
@@ -100,11 +103,11 @@ export class Session {
     this.broadcast({ kind: "transcript", role: "user", text });
     this.history.push({ role: "user", text });
 
-    // 认知慢环：优先 LLM Agent，失败回退规则式 NLU（fail-closed，不阻塞）。
+    // 认知慢环：优先常驻 LLM Agent，失败回退规则式 NLU（fail-closed，不阻塞）。
     let intent: NluResult | null = null;
-    if (this.useClaude) {
+    if (this.resident) {
       this.broadcast({ kind: "status", busy: true, label: "思考中…" });
-      intent = await runClaudeAgent(text, this.worldContext());
+      intent = await this.resident.ask(text, this.worldContext());
       this.broadcast({ kind: "status", busy: false });
     }
     if (!intent) intent = parseIntent(text);

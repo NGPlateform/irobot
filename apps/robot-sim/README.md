@@ -15,11 +15,19 @@ pnpm --filter @irobot/robot-sim dev
 语音识别（STT）与合成（TTS）用浏览器原生 **Web Speech API**，**零外部 API、零密钥**。
 语音需在 **Chrome / Edge** 中使用；任何浏览器都可用输入框打字。
 
-## 认知层：本机 claude CLI 作为 LLM Agent
+## 认知层：本机 claude CLI 常驻 Agent
 
-若本机装有 `claude` CLI，服务启动时自动用它作为认知慢环的 Agent（页面右上角标识
-`Agent: claude CLI (haiku)`）；否则回退到规则式 NLU。二者产出**完全同形**的声明式提案，
+若本机装有 `claude` CLI，服务启动时拉起一个**常驻 Agent 进程**（页面右上角标识
+`Agent: claude 常驻 (haiku)`）；否则回退到规则式 NLU。二者产出**完全同形**的声明式提案，
 下游 Orchestrator / 状态机 / 安全校验不变——这正是"LLM 只提议、确定性层处置"。
+
+**为什么常驻**：进程用 `--input-format stream-json --output-format stream-json` 长驻，
+多轮对话由进程原生保持，prompt 缓存跨轮复用（首轮建 ~31k token 缓存，之后 cache_read
+命中）。实测每轮延迟从冷启的约 11s 降到热缓存的约 7s，且成本大幅下降。多轮指代原生
+生效，例如先“往前走一米”、再“再往前挪半米”会被正确理解为 0.5 米。
+
+常驻进程串行处理（一次一轮）；单轮超时（默认 30s）或进程崩溃会自动重启并对当轮返回
+null，由 Session 回退规则式 NLU（fail-closed，不阻塞对话）。
 
 LLM 让对话自然：“麻烦帮我到二号那边去一趟”“现在电池情况怎么样”这类口语化、无关键词的
 说法，规则式接不住，LLM 能正确映射为提案。即便 LLM 幻觉出不存在的能力，也会被
@@ -51,8 +59,9 @@ Orchestrator `REJECTED`——安全边界不依赖模型。
 
 | 演示组件 | 架构角色 | 说明 |
 | --- | --- | --- |
-| `agent-claude.ts` | 认知慢环（LLM Agent） | 本机 claude CLI，自然语言 → 声明式提案；只提议不执行 |
-| `nlu.ts` | 认知慢环（回退） | 规则式中文意图，CLI 不可用时兜底；与 LLM 输出同形 |
+| `agent-resident.ts` | 认知慢环（常驻 LLM Agent） | 长驻 claude 进程，stream-json 双向流，缓存跨轮复用 |
+| `agent-claude.ts` | Agent 共享逻辑 | system prompt、输出 schema、结构化输出映射（也供一次性调用） |
+| `nlu.ts` | 认知慢环（回退） | 规则式中文意图，CLI 不可用/超时时兜底；与 LLM 输出同形 |
 | `orchestrator.ts` | Command Orchestrator | 提案校验、确定性前置条件、安全等级处置、状态机守卫 |
 | `sim-robot.ts` | Edge Runtime + 设备物理 | 权威状态源；执行动作、流式 feedback、急停/取消即时生效 |
 | `capabilities.ts` | Capability Manifest | 经 capability-schema 校验，与冻结契约一致 |
