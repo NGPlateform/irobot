@@ -90,6 +90,23 @@ const RAW: unknown[] = [
     resultSchema: { type: "object", required: ["station"], properties: {} },
   },
   {
+    capabilityId: "robot.navigation.enter_restricted_zone",
+    version: "1.0.0",
+    kind: "action",
+    description: "进入受限/危险区域（高风险，需人工审批）",
+    safetyClass: "S3_HAZARDOUS",
+    concurrencyKey: "base_motion",
+    interruptMode: "abort",
+    defaultTimeoutMs: 90000,
+    offlinePolicy: "stop_on_disconnect",
+    inputSchema: { type: "object", properties: {} },
+    preconditions: [
+      { path: "safety.estop", op: "==", value: false },
+      { path: "localization.healthy", op: "==", value: true },
+    ],
+    resultSchema: { type: "object", properties: {} },
+  },
+  {
     capabilityId: "robot.navigation.return_to_dock",
     version: "1.0.0",
     kind: "action",

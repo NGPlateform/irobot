@@ -49,14 +49,45 @@ function evalPrecondition(
  * 施加安全等级处置、构造并校验 Action Envelope、驱动状态机、把动作交给仿真机器人。
  * 状态机转移全部经 applyTransition 守卫，非法转移抛错——不能绕过。
  */
+type ApprovalDecision = "approve" | "deny" | "timeout";
+
+const APPROVAL_TIMEOUT_MS = Number(process.env.IROBOT_APPROVAL_TIMEOUT_MS ?? 30000);
+
 export class Orchestrator {
   private leaseEpoch = 1;
+  private readonly pendingApprovals = new Map<
+    string,
+    { resolve: (d: ApprovalDecision) => void; timer: ReturnType<typeof setTimeout> }
+  >();
 
-  constructor(private robot: SimRobot) {}
+  constructor(
+    private robot: SimRobot,
+    private approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
+  ) {}
 
   cancelActive(): boolean {
     const id = this.robot.activeCommandId();
     return id ? this.robot.requestCancel(id) : false;
+  }
+
+  /** 界面审批决策入口。返回是否命中一个待审批命令。 */
+  resolveApproval(commandId: string, approved: boolean): boolean {
+    const p = this.pendingApprovals.get(commandId);
+    if (!p) return false;
+    clearTimeout(p.timer);
+    this.pendingApprovals.delete(commandId);
+    p.resolve(approved ? "approve" : "deny");
+    return true;
+  }
+
+  private awaitApproval(commandId: string): Promise<ApprovalDecision> {
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.pendingApprovals.delete(commandId);
+        resolve("timeout");
+      }, this.approvalTimeoutMs);
+      this.pendingApprovals.set(commandId, { resolve, timer });
+    });
   }
 
   private buildEnvelope(
@@ -114,6 +145,11 @@ export class Orchestrator {
       }
       case "robot.navigation.return_to_dock":
         return { goal: { x: t.dock.x, y: t.dock.y }, speed: 0.5 };
+      case "robot.navigation.enter_restricted_zone":
+        return {
+          goal: { x: t.restrictedZone.x, y: t.restrictedZone.y },
+          speed: 0.4,
+        };
       default:
         return { error: `不支持的动作：${proposal.capabilityId}` };
     }
@@ -210,12 +246,21 @@ export class Orchestrator {
     const resolved = this.resolveGoal(proposal);
     if ("error" in resolved) return to("REJECTED", { reason: resolved.error });
 
-    // 安全等级处置。S3 需人工审批（demo 中所用能力为 S0/S2，此为纵深防御分支）。
+    // 安全等级处置。S3 需人工审批：进入 PENDING_APPROVAL 等界面决策，绝不静默放行。
     const disposition = SAFETY_CLASS_META[safetyClass].defaultDisposition;
     if (disposition === "manual_approval") {
-      to("PENDING_APPROVAL");
-      // demo 无审批 UI：保守拒绝而非静默放行。
-      return to("REJECTED", { reason: "S3 危险动作需人工审批，本 demo 未启用" });
+      const expiresAt = new Date(Date.now() + this.approvalTimeoutMs).toISOString();
+      to("PENDING_APPROVAL", {
+        requiresApproval: true,
+        capabilityId: proposal.capabilityId,
+        arguments: proposal.arguments,
+        safetyClass,
+        expiresAt,
+      });
+      const decision = await this.awaitApproval(commandId);
+      if (decision === "timeout") return to("EXPIRED", { reason: "审批超时，已放弃" });
+      if (decision === "deny") return to("REJECTED", { reason: "审批被拒绝" });
+      // approve → 落到下方 ACCEPTED + 执行
     }
 
     // 构造并校验 Envelope（审计留痕，同时证明与 action-protocol 一致）。

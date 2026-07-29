@@ -16,6 +16,7 @@ export interface Telemetry {
   charging: boolean;
   stations: Record<string, { x: number; y: number }>;
   dock: { x: number; y: number };
+  restrictedZone: { x: number; y: number; label: string };
 }
 
 interface ActiveMotion {
@@ -57,6 +58,7 @@ export class SimRobot {
     大厅: { x: 4.5, y: 6.5 },
   };
   readonly dock = { x: 1, y: 1 };
+  readonly restrictedZone = { x: 6, y: 3, label: "危险区" };
 
   constructor(private onTelemetry: (t: Telemetry) => void) {}
 
@@ -84,6 +86,7 @@ export class SimRobot {
       charging: this.charging,
       stations: this.stations,
       dock: this.dock,
+      restrictedZone: this.restrictedZone,
     };
   }
 

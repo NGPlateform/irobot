@@ -94,6 +94,12 @@ export class Session {
     if (!ok) this.broadcast({ kind: "reply", text: "当前没有正在执行的动作。" });
   }
 
+  /** 界面审批决策。 */
+  approve(commandId: string, approved: boolean): void {
+    const ok = this.orchestrator.resolveApproval(commandId, approved);
+    if (!ok) this.broadcast({ kind: "reply", text: "没有待审批的动作，可能已超时。" });
+  }
+
   private worldContext(): AgentWorldContext {
     const t = this.robot.telemetry();
     return {
@@ -136,13 +142,12 @@ export class Session {
     // proposal
     this.say(intent.reply);
     const proposal = intent.proposal!;
-    const finalEvent = await this.orchestrator.propose(proposal, (ev) =>
-      this.broadcast({
-        kind: "action",
-        event: ev,
-        capabilityId: proposal.capabilityId,
-      }),
-    );
+    const finalEvent = await this.orchestrator.propose(proposal, (ev) => {
+      this.broadcast({ kind: "action", event: ev, capabilityId: proposal.capabilityId });
+      if (ev.state === "PENDING_APPROVAL") {
+        this.say("这是高风险动作，需要你在界面上确认。请点击批准或拒绝。");
+      }
+    });
     this.say(this.completionSpeech(proposal, finalEvent));
   }
 
@@ -167,11 +172,14 @@ export class Session {
           return `已到达${proposal.arguments.station}。`;
         case "robot.navigation.return_to_dock":
           return "已返回充电站，开始充电。";
+        case "robot.navigation.enter_restricted_zone":
+          return "审批通过，已进入危险区。";
         default:
           return "动作完成。";
       }
     }
     if (ev.state === "CANCELLED") return "已取消当前动作。";
+    if (ev.state === "EXPIRED") return `${p.reason ?? "已过期"}。`;
     if (ev.state === "REJECTED") return `无法执行：${p.reason ?? "被策略拒绝"}。`;
     if (ev.state === "FAILED") {
       if (p.reason === "estop") return "已因急停停止。";

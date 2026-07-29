@@ -141,3 +141,29 @@ body {
   margin-top: 14px; font-size: 12px; color: var(--ink-faint);
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px;
 }
+
+.approval {
+  position: fixed; inset: 0; z-index: 30; display: flex;
+  align-items: center; justify-content: center; background: rgba(4, 8, 12, 0.6);
+}
+.approval.hidden { display: none; }
+.ap-card {
+  width: min(440px, 92vw); background: var(--panel);
+  border: 1px solid var(--signal); border-radius: 14px; overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+.ap-h {
+  background: var(--signal); color: #1a0f02; font-weight: 700;
+  padding: 12px 18px; font-size: 15px;
+}
+.ap-b { padding: 16px 18px; display: flex; flex-direction: column; gap: 9px; }
+.ap-b > div { display: flex; justify-content: space-between; gap: 14px; font-size: 13.5px; }
+.ap-b span { color: var(--ink-faint); }
+.ap-b b { font-family: var(--mono); font-size: 12.5px; text-align: right; word-break: break-all; }
+.ap-b b.risk { color: var(--danger); }
+.ap-actions { display: flex; gap: 10px; padding: 0 18px 18px; }
+.ap-actions .ctl { flex: 1; padding: 11px; font-size: 14px; }
+.ap-actions .approve {
+  color: #06210f; background: var(--ok); border-color: var(--ok); font-weight: 700;
+}
+.ap-actions .approve:hover { filter: brightness(1.08); }

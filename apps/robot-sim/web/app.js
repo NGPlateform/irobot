@@ -55,6 +55,20 @@ function draw() {
   ctx.fillStyle = "#0b0f14"; ctx.font = "14px system-ui"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
   ctx.fillText("⚡", dx, dy);
 
+  // 受限/危险区
+  if (telemetry.restrictedZone) {
+    const rz = telemetry.restrictedZone;
+    const [zx0, zy0] = w2p(rz.x - 1, rz.y + 1);
+    const [zx1, zy1] = w2p(rz.x + 1, rz.y - 1);
+    ctx.fillStyle = "rgba(229,100,91,.14)";
+    ctx.fillRect(zx0, zy0, zx1 - zx0, zy1 - zy0);
+    ctx.strokeStyle = "rgba(229,100,91,.75)"; ctx.lineWidth = 1.5;
+    ctx.setLineDash([6, 4]); ctx.strokeRect(zx0, zy0, zx1 - zx0, zy1 - zy0); ctx.setLineDash([]);
+    ctx.fillStyle = "#e5645b"; ctx.font = "11px system-ui"; ctx.textAlign = "center";
+    const [lx, ly] = w2p(rz.x, rz.y);
+    ctx.fillText("⚠ " + rz.label, lx, ly);
+  }
+
   // 站点
   for (const [name, s] of Object.entries(telemetry.stations)) {
     const [sx, sy] = w2p(s.x, s.y);
@@ -129,6 +143,8 @@ function onAction(ev) {
   if (ev.state) currentState = ev.state;
   if (ev.kind === "feedback" && typeof ev.progress === "number") progress = ev.progress;
   if (ev.state === "EXECUTING") progress = 0;
+  if (ev.state === "PENDING_APPROVAL") showApproval(ev);
+  if (["SUCCEEDED", "FAILED", "CANCELLED", "REJECTED", "EXPIRED"].includes(ev.state) && ev.commandId === pendingApprovalId) hideApproval();
 
   const label = ev.kind === "feedback"
     ? `feedback <span class="pr">${Math.round((ev.progress ?? 0) * 100)}%</span>`
@@ -159,6 +175,42 @@ function converse(text) { if (text.trim()) post("/converse", { text }); }
 $("send").onclick = () => { converse($("text-in").value); $("text-in").value = ""; };
 $("text-in").onkeydown = (e) => { if (e.key === "Enter") $("send").click(); };
 $("cancel").onclick = () => post("/cancel");
+
+// ---------- 审批 ----------
+let pendingApprovalId = null;
+function showApproval(ev) {
+  pendingApprovalId = ev.commandId;
+  const p = ev.payload || {};
+  const exp = p.expiresAt ? new Date(p.expiresAt).toLocaleTimeString() : "—";
+  $("approval").innerHTML = `
+    <div class="ap-card">
+      <div class="ap-h">⚠ 需要人工审批（S3 高风险动作）</div>
+      <div class="ap-b">
+        <div><span>设备</span><b>sim-robot-001</b></div>
+        <div><span>动作</span><b>${p.capabilityId || ev.commandId}</b></div>
+        <div><span>参数</span><b>${JSON.stringify(p.arguments || {})}</b></div>
+        <div><span>风险等级</span><b class="risk">${p.safetyClass || "S3_HAZARDOUS"}</b></div>
+        <div><span>有效期至</span><b>${exp}</b></div>
+      </div>
+      <div class="ap-actions">
+        <button id="ap-deny" class="ctl danger">拒绝</button>
+        <button id="ap-approve" class="ctl approve">批准执行</button>
+      </div>
+    </div>`;
+  $("approval").classList.remove("hidden");
+  $("ap-approve").onclick = () => decide(true);
+  $("ap-deny").onclick = () => decide(false);
+}
+function decide(approved) {
+  if (!pendingApprovalId) return;
+  post("/approve", { commandId: pendingApprovalId, approved });
+  hideApproval();
+}
+function hideApproval() {
+  pendingApprovalId = null;
+  $("approval").classList.add("hidden");
+  $("approval").innerHTML = "";
+}
 $("estop").onclick = () => post("/estop", { on: true });
 $("clear-estop").onclick = () => post("/estop", { on: false });
 

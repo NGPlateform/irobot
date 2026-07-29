@@ -73,6 +73,16 @@ export function createSimServer(session: Session) {
       return;
     }
 
+    if (method === "POST" && url === "/approve") {
+      const body = await readBody(req);
+      const parsed = JSON.parse(body || "{}");
+      const commandId = String(parsed.commandId ?? "");
+      const approved = Boolean(parsed.approved);
+      if (commandId) session.approve(commandId, approved);
+      res.writeHead(202).end("{}");
+      return;
+    }
+
     if (method === "POST" && url === "/estop") {
       const body = await readBody(req);
       const on = Boolean(JSON.parse(body || "{}").on);

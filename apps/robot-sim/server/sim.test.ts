@@ -90,3 +90,67 @@ describe("仿真闭环：Orchestrator + SimRobot", () => {
     expect(final.state).toBe("REJECTED");
   });
 });
+
+async function waitFor(cond: () => boolean, ms = 2000): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > ms) throw new Error("waitFor 超时");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
+describe("S3 人工审批门：enter_restricted_zone", () => {
+  it("批准 → 闸门打开、进入执行（PENDING_APPROVAL→ACCEPTED→EXECUTING）", async () => {
+    const robot = new SimRobot(() => {});
+    robot.start(10);
+    const orch = new Orchestrator(robot, 5000);
+    const states: string[] = [];
+    let cmdId = "";
+    const p = orch.propose(
+      { capabilityId: "robot.navigation.enter_restricted_zone", arguments: {} },
+      (e) => {
+        if (e.state) states.push(e.state);
+        if (e.state === "PENDING_APPROVAL") cmdId = e.commandId;
+      },
+    );
+    await waitFor(() => cmdId !== "");
+    expect(orch.resolveApproval(cmdId, true)).toBe(true);
+    // 批准后应进入执行；等 EXECUTING 出现即取消收尾（避免等完整长途导航）。
+    await waitFor(() => states.includes("EXECUTING"));
+    orch.cancelActive();
+    const final = await p;
+    robot.stop();
+    expect(states).toEqual(
+      expect.arrayContaining(["PROPOSED", "VALIDATING", "PENDING_APPROVAL", "ACCEPTED", "EXECUTING"]),
+    );
+    expect(final.state).toBe("CANCELLED");
+  });
+
+  it("拒绝 → REJECTED，动作不执行", async () => {
+    const robot = new SimRobot(() => {});
+    robot.start(10);
+    const orch = new Orchestrator(robot, 5000);
+    let cmdId = "";
+    const p = orch.propose(
+      { capabilityId: "robot.navigation.enter_restricted_zone", arguments: {} },
+      (e) => { if (e.state === "PENDING_APPROVAL") cmdId = e.commandId; },
+    );
+    await waitFor(() => cmdId !== "");
+    orch.resolveApproval(cmdId, false);
+    const final = await p;
+    robot.stop();
+    expect(final.state).toBe("REJECTED");
+  });
+
+  it("超时（不审批）→ EXPIRED", async () => {
+    const robot = new SimRobot(() => {});
+    robot.start(10);
+    const orch = new Orchestrator(robot, 50); // 50ms 审批超时
+    const final = await orch.propose(
+      { capabilityId: "robot.navigation.enter_restricted_zone", arguments: {} },
+      () => {},
+    );
+    robot.stop();
+    expect(final.state).toBe("EXPIRED");
+  });
+});

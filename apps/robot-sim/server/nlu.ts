@@ -94,6 +94,15 @@ export function parseIntent(raw: string): NluResult {
     };
   }
 
+  // 进入受限/危险区（S3，将触发人工审批）
+  if (/(危险区|受限区|禁区|危险区域|受限区域)/.test(text)) {
+    return {
+      kind: "proposal",
+      proposal: { capabilityId: "robot.navigation.enter_restricted_zone", arguments: {} },
+      reply: "好的，请求进入危险区。",
+    };
+  }
+
   // 返回充电
   if (/(回充电|返回充电|回坞|回桩|回家|去充电|充电)/.test(text)) {
     return {
