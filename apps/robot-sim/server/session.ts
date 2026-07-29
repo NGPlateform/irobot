@@ -1,14 +1,20 @@
 import type { ActionEvent } from "@irobot/action-protocol";
 import { SimRobot, type Telemetry } from "./sim-robot.js";
 import { Orchestrator, type Proposal } from "./orchestrator.js";
-import { parseIntent } from "./nlu.js";
+import { parseIntent, type NluResult } from "./nlu.js";
 import { CAPABILITIES } from "./capabilities.js";
+import {
+  runClaudeAgent,
+  claudeCliAvailable,
+  type AgentWorldContext,
+} from "./agent-claude.js";
 
 export type SseMessage =
-  | { kind: "hello"; telemetry: Telemetry; capabilities: string[] }
+  | { kind: "hello"; telemetry: Telemetry; capabilities: string[]; agent: string }
   | { kind: "telemetry"; data: Telemetry }
   | { kind: "transcript"; role: "user" | "agent"; text: string }
   | { kind: "reply"; text: string }
+  | { kind: "status"; busy: boolean; label?: string }
   | { kind: "action"; event: ActionEvent; capabilityId: string };
 
 type Subscriber = (msg: SseMessage) => void;
@@ -21,14 +27,25 @@ export class Session {
   readonly robot: SimRobot;
   private readonly orchestrator: Orchestrator;
   private readonly subscribers = new Set<Subscriber>();
+  private readonly history: Array<{ role: "user" | "agent"; text: string }> = [];
+  private useClaude = false;
+  private agentName = "规则式 NLU";
 
   constructor() {
     this.robot = new SimRobot((t) => this.broadcast({ kind: "telemetry", data: t }));
     this.orchestrator = new Orchestrator(this.robot);
   }
 
-  start(): void {
+  async start(): Promise<void> {
     this.robot.start();
+    const mode = process.env.IROBOT_AGENT ?? "auto";
+    if (mode !== "rules") {
+      this.useClaude = await claudeCliAvailable();
+    }
+    this.agentName = this.useClaude
+      ? `claude CLI (${process.env.IROBOT_AGENT_MODEL ?? "haiku"})`
+      : "规则式 NLU";
+    console.log(`  Agent: ${this.agentName}`);
   }
   stop(): void {
     this.robot.stop();
@@ -40,6 +57,7 @@ export class Session {
       kind: "hello",
       telemetry: this.robot.telemetry(),
       capabilities: [...CAPABILITIES.keys()],
+      agent: this.agentName,
     });
     return () => this.subscribers.delete(fn);
   }
@@ -65,10 +83,31 @@ export class Session {
     if (!ok) this.broadcast({ kind: "reply", text: "当前没有正在执行的动作。" });
   }
 
+  private worldContext(): AgentWorldContext {
+    const t = this.robot.telemetry();
+    return {
+      battery: t.battery,
+      pose: { x: t.pose.x, y: t.pose.y },
+      estop: t.estop,
+      charging: t.charging,
+      stations: Object.keys(t.stations),
+      history: this.history.slice(-6),
+    };
+  }
+
   /** 处理一句用户语音/文本。 */
   async converse(text: string): Promise<void> {
     this.broadcast({ kind: "transcript", role: "user", text });
-    const intent = parseIntent(text);
+    this.history.push({ role: "user", text });
+
+    // 认知慢环：优先 LLM Agent，失败回退规则式 NLU（fail-closed，不阻塞）。
+    let intent: NluResult | null = null;
+    if (this.useClaude) {
+      this.broadcast({ kind: "status", busy: true, label: "思考中…" });
+      intent = await runClaudeAgent(text, this.worldContext());
+      this.broadcast({ kind: "status", busy: false });
+    }
+    if (!intent) intent = parseIntent(text);
 
     if (intent.kind === "control") {
       if (intent.control === "estop") this.robot.setEstop(true);
@@ -97,6 +136,8 @@ export class Session {
   }
 
   private say(text: string): void {
+    if (!text) return;
+    this.history.push({ role: "agent", text });
     this.broadcast({ kind: "transcript", role: "agent", text });
     this.broadcast({ kind: "reply", text });
   }

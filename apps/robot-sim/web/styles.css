@@ -100,6 +100,18 @@ body {
 
 .note { font-size: 11.5px; color: var(--signal); margin: 2px 0 0; min-height: 14px; }
 
+.agent-badge {
+  margin-left: auto; font-family: var(--mono); font-size: 11px; color: var(--flow);
+  background: #0d2830; border: 1px solid #16414a; border-radius: 999px; padding: 3px 10px;
+}
+.thinking { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--flow); }
+.thinking.hidden { display: none; }
+.spin {
+  width: 11px; height: 11px; border-radius: 50%;
+  border: 2px solid #1c3b41; border-top-color: var(--flow); animation: spin .7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
 .col-head {
   font-family: var(--mono); font-size: 11px; letter-spacing: .1em;
   text-transform: uppercase; color: var(--ink-faint);

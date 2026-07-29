@@ -17,6 +17,7 @@
         <header class="stage-head">
           <h1>iRobot 仿真控制台</h1>
           <span class="sub">语音 → 提案 → 执行 → 流式闭环</span>
+          <span id="agent-badge" class="agent-badge">–</span>
         </header>
         <canvas id="world" width="760" height="620"></canvas>
         <div class="readouts">
@@ -41,6 +42,7 @@
             <button id="estop" class="ctl danger">急停</button>
           </div>
           <p id="voice-note" class="note"></p>
+          <div id="thinking" class="thinking hidden"><span class="spin"></span>思考中…</div>
         </div>
 
         <div class="col-head">对话</div>

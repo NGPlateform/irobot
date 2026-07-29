@@ -4,7 +4,7 @@ import { createSimServer } from "./server.js";
 const PORT = Number(process.env.PORT ?? 8899);
 
 const session = new Session();
-session.start();
+await session.start();
 
 const server = createSimServer(session);
 server.listen(PORT, () => {

@@ -110,7 +110,8 @@ function updateReadouts() {
 const es = new EventSource("/events");
 es.onmessage = (e) => {
   const msg = JSON.parse(e.data);
-  if (msg.kind === "hello") { telemetry = msg.telemetry; }
+  if (msg.kind === "hello") { telemetry = msg.telemetry; $("agent-badge").textContent = "Agent: " + msg.agent; }
+  else if (msg.kind === "status") { $("thinking").classList.toggle("hidden", !msg.busy); }
   else if (msg.kind === "telemetry") {
     telemetry = msg.data;
     const last = trail[trail.length - 1];
