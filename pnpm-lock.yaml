@@ -39,6 +39,18 @@ importers:
         specifier: ^3.24.0
         version: 3.25.76
 
+  platform/services/gateway-adapter:
+    dependencies:
+      '@irobot/action-protocol':
+        specifier: workspace:*
+        version: link:../../packages/action-protocol
+      '@irobot/policy-contract':
+        specifier: workspace:*
+        version: link:../../packages/policy-contract
+      zod:
+        specifier: ^3.24.0
+        version: 3.25.76
+
 packages:
 
   '@esbuild/aix-ppc64@0.21.5':

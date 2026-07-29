@@ -1,0 +1,27 @@
+{
+  "id": "irobot-gateway-adapter",
+  "name": "iRobot Gateway Adapter",
+  "description": "将 Agent 的设备动作提案桥接到外部 Command Orchestrator。",
+  "contracts": {
+    "tools": ["propose_action"]
+  },
+  "toolMetadata": {
+    "propose_action": {
+      "optional": true
+    }
+  },
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["orchestratorUrl"],
+    "properties": {
+      "orchestratorUrl": {
+        "type": "string",
+        "description": "外部 Command Orchestrator 的 HTTP 基址，例如 http://127.0.0.1:8787"
+      }
+    }
+  }
+}

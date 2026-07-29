@@ -6,7 +6,7 @@
 
 | ID | 风险 | P | I | 缓解措施 | 责任人 | 状态 |
 | --- | --- | --- | --- | --- | --- | --- |
-| R01 | OpenClaw 扩展点不足 | 中 | 中高 | Phase 0 Spike；优先外部服务，必要时仅窄 patch | TBD | Open |
+| R01 | OpenClaw 扩展点不足 | 低 | 中高 | ✅ Spike 通过：外部 Tool 插件即可接入，见 spikes/openclaw-integration.md；完整 e2e 待 Phase 1 | TBD | Mitigating |
 | R02 | 机器人驱动不完整 | 高 | 高 | 首期选 ROS 2 支持成熟的硬件；仿真先行 | TBD | Open |
 | R03 | Agent 行为不稳定 | 高 | 中 | Schema、最大轮次、动作提案、确定性验证、固定 Mission 快照 | TBD | Mitigating |
 | R04 | 网络重试导致重复动作 | 中 | 极高 | Inbox/Outbox、幂等处理器、终态不变 | TBD | Mitigating |
@@ -22,7 +22,7 @@
 | R14 | 过早微服务化 | 中 | 中 | MVP 模块化单体，按负载和故障域再拆分 | TBD | Open |
 | R15 | 工期乐观（HIL/安全评审溢出） | 高 | 中 | 22～30 周视为下限；G0 末按硬件成熟度重估 | TBD | Open |
 | R16 | 多语言栈集成成本 | 中 | 中 | ADR-010：MVP 压到双语言（TS 慢环 / Rust 快环） | TBD | Closed |
-| R17 | OpenClaw 接入为最大未知 | 中 | 高 | 第 2 周硬门槛 Spike；不通过则重估 Phase 1 范围 | TBD | Open |
+| R17 | OpenClaw 接入为最大未知 | 低 | 高 | ✅ Spike 通过：流式/取消/审批/配置四缝均由 plugin-sdk 提供，源码级验证 | TBD | Mitigating |
 | R18 | 边缘算力约束下 Agent 无法运行 | 中 | 中 | ADR-011：上下文压缩为硬约束，云/边共用动作协议 | TBD | Mitigating |
 
 ## 极高影响风险优先级

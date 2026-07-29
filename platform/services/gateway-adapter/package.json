@@ -1,0 +1,21 @@
+{
+  "name": "@irobot/gateway-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "OpenClaw 接入适配器 — 将 Agent 的动作提案桥接到外部 Command Orchestrator（不 fork 核心）。",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@irobot/action-protocol": "workspace:*",
+    "@irobot/policy-contract": "workspace:*",
+    "zod": "^3.24.0"
+  }
+}
