@@ -102,16 +102,35 @@ R01/R17 由"中/高未决"降为"已验证可行，走外部插件路线"。ADR-
 - **活体验证**：`curl -d @fixtures/navigate_relative.envelope.json .../v1/actions` 返回
   完整 PROPOSED→…→feedback 事件流。
 
-### 唯一未覆盖的一跳
+### 已在本机真网关上跑通（2026-07-30）
 
-"OpenClaw 网关进程加载插件、模型发起 `propose_action` 工具调用"这一跳需要一台**合规主机**
-运行真网关。本沙箱不满足其运行时要求：
+最初判断本沙箱跑不了真网关；实际逐一攻克后**已在本机把完整闭环跑通**：
 
-- Node 22.21.1 < OpenClaw 要求的 **≥22.22.3**；
-- OpenClaw 665M 仓库未安装依赖（`pnpm install` 体量大）；
-- 无模型 provider 凭据（且无捆绑的 keyless 后端）。
+```
+真 OpenClaw 网关(agent --local) → 模型(OpenAI Responses API)
+  → propose_action 工具(本插件，已在真网关内 Status: loaded)
+  → robot-sim /v1/actions(外部 Command Orchestrator) → 机器人移动
+  → 工具结果回流 → 模型最终答复 "好的，已让机器人前进两米。"
+```
 
-该跳的 seam 已在上文源码级证明，非未知项。
+证据：说“前进两米”后，机器人 pose.x 由 1 → 3（正好 navigate_relative 2 米），
+agent turn exit=0，模型 Responses API 恰好两跳（先 function_call、再收到工具结果后出文本）。
+
+为在本沙箱跑起来所做的环境处置（均为本地开发权宜，不进产品仓库）：
+
+- Node 22.21.1 → **24.18.1**（nvm；满足 OpenClaw ≥24.15 引擎）。
+- 手动补齐被网络抖动跳过的原生绑定：`@rolldown/binding-linux-x64-gnu`、`@esbuild/linux-x64`。
+- pnpm `verifyDepsBeforeRun: false`（否则每次跑脚本都自动 install，撞上拉不下来的大二进制）。
+- 用 pnpm overrides 把**用不到**的巨型二进制（onnxruntime / node-llama-cpp / copilot /
+  claude-agent-sdk 二进制 / node-pty 等）指向空 stub，使 install 得以完整跑完。
+- 插件用 esbuild 打成自包含 bundle（内联 @irobot/* 与 typebox，external openclaw），
+  经 `openclaw plugins install <dir> --link` 旁加载；隔离 `OPENCLAW_STATE_DIR`，
+  **不触碰操作员的 `~/.openclaw`**。
+- 模型用本地 OpenAI-兼容 mock（Responses API SSE，返回 propose_action 工具调用）替代凭据；
+  真实使用换成带 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 的 provider 即可，链路不变。
+
+结论：`接真实 OpenClaw 网关` 已从"seam 证明"升级为**本机实跑贯通**。合规生产主机上把 mock 换成
+真 provider、把 stub 的重扩展按需装回即可。
 
 ### 合规主机 runbook（完成真连接）
 

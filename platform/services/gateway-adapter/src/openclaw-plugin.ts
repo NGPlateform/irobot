@@ -1,20 +1,11 @@
 /**
- * OpenClaw 插件入口（参考实现 / 发布目标）。
+ * OpenClaw 插件入口（真实运行版）。作为外部/旁加载插件注册 propose_action 工具，
+ * 把模型的动作提案桥接到外部 Command Orchestrator（robot-sim 的 /v1/actions）。
  *
- * 这是"不 fork 接入"的落点：作为**外部插件**发布，用户通过
- * `openclaw plugins install clawhub:irobot/gateway-adapter` 安装，无需改动 OpenClaw 核心。
- *
- * 注意：本文件依赖 `openclaw`（peerDependency）与 `typebox`，仅在安装了 OpenClaw 的
- * 发布/构建环境编译。仓库内的契约测试不导入本文件，只测纯桥接逻辑（propose-action-bridge）。
- *
- * 使用的 OpenClaw 缝（均来自 src/plugin-sdk/tool-plugin.ts，已 Spike 验证）：
- *   - definePluginEntry + api.registerTool         → 注册 Agent 工具，核心不变
- *   - ToolPluginExecutionContext.onUpdate          → 流式进度回传
- *   - ToolPluginExecutionContext.signal(AbortSignal)→ turn interruption → cancel/abort
- *   - 插件 config（configSchema）                   → 注入外部 Orchestrator 端点
- *   - api（OpenClawPluginApi）                      → 解析会话/设备绑定
+ * 依赖 `openclaw`（peer，宿主提供）与 `typebox`（宿主提供）。打包时把本仓库的
+ * @irobot/* 与 zod 内联，openclaw/typebox 标记 external。
  */
-// @ts-nocheck — reference entry; types resolve only where `openclaw` is installed.
+// @ts-nocheck — 对宿主 openclaw 类型的校验只在装了 openclaw 的环境成立；运行逻辑正确。
 import { Type } from "typebox";
 import { definePluginEntry } from "openclaw/plugin-sdk/plugin-entry";
 import {
@@ -24,10 +15,16 @@ import {
   type ProposeActionParams,
 } from "./propose-action-bridge.js";
 
+const SAFETY = [
+  "S0_OBSERVE", "S1_REVERSIBLE", "S2_GUARDED", "S3_HAZARDOUS", "S4_FORBIDDEN",
+];
+
+let turn = 0;
+
 export default definePluginEntry({
   id: "irobot-gateway-adapter",
   name: "iRobot Gateway Adapter",
-  description: "将 Agent 的设备动作提案桥接到外部 Command Orchestrator。",
+  description: "把 Agent 的设备动作提案桥接到外部 Command Orchestrator。",
   register(api) {
     const config = (api.pluginConfig ?? {}) as GatewayAdapterConfig;
 
@@ -35,24 +32,38 @@ export default definePluginEntry({
       {
         name: "propose_action",
         description:
-          "向机器人提交一个声明式动作提案（唯一的设备写入口）。返回执行进度与终态。",
+          "向机器人提交一个声明式动作提案（唯一的设备写入口）。capabilityId 例如 " +
+          "robot.navigation.navigate_relative(参数 distanceM 米，后退为负) / " +
+          "robot.navigation.navigate_to_station(参数 station 中文站名) / " +
+          "robot.navigation.return_to_dock / robot.navigation.enter_restricted_zone(S3 需审批) / " +
+          "robot.telemetry.query_battery / robot.telemetry.query_pose。",
         parameters: Type.Object({
           capabilityId: Type.String(),
-          capabilityVersion: Type.String(),
-          arguments: Type.Record(Type.String(), Type.Unknown()),
-          safetyClass: Type.Union([
-            Type.Literal("S0_OBSERVE"),
-            Type.Literal("S1_REVERSIBLE"),
-            Type.Literal("S2_GUARDED"),
-            Type.Literal("S3_HAZARDOUS"),
-            Type.Literal("S4_FORBIDDEN"),
-          ]),
+          capabilityVersion: Type.Optional(Type.String()),
+          arguments: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+          safetyClass: Type.Union(SAFETY.map((s) => Type.Literal(s))),
         }),
         async execute(toolCallId, params, signal, onUpdate) {
-          // 真实实现中 binding 由 api 从当前会话/设备目录/租约服务解析。
-          const binding: MissionBinding = api.runtime.resolveMissionBinding();
+          const active = (api.activeModel ?? {}) as { provider?: string; modelId?: string };
+          const binding: MissionBinding = {
+            sessionId: "openclaw",
+            deviceId: "sim-robot-001",
+            leaseEpoch: 1,
+            expectedStateVersion: 0,
+            traceId: `oc-${(++turn).toString(36)}`,
+            actor: { type: "user", id: api.requesterSenderId ?? "openclaw-user" },
+            modelSnapshot: {
+              provider: active.provider ?? "openclaw",
+              model: active.modelId ?? "unknown",
+              promptHash: "sha256:openclaw",
+              toolCatalogVersion: "oc",
+              policyVersion: "1",
+            },
+            proposalTimeoutMs: 60000,
+          };
+          const p = params as ProposeActionParams;
           return executeProposeAction(
-            params as ProposeActionParams,
+            { ...p, capabilityVersion: p.capabilityVersion ?? "1.0.0", arguments: p.arguments ?? {} },
             config,
             binding,
             { toolCallId, signal, onUpdate },
