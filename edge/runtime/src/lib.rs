@@ -13,6 +13,7 @@
 
 pub mod action_state;
 pub mod edge_guard;
+pub mod protocol;
 pub mod safety;
 
 pub use action_state::{apply_transition, ActionState, IllegalTransition};

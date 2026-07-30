@@ -7,6 +7,7 @@ import { claudeCliAvailable, type AgentWorldContext } from "./agent-claude.js";
 import { ResidentAgent } from "./agent-resident.js";
 import { ApiAgent, apiKeyAvailable } from "./agent-api.js";
 import type { LedgerStore } from "./ledger-store.js";
+import type { EdgeClient } from "./edge-client.js";
 
 /** 认知慢环后端的统一接口。ApiAgent / ResidentAgent 都实现它。 */
 interface Agent {
@@ -36,9 +37,9 @@ export class Session {
   private agent: Agent | null = null;
   private agentName = "规则式 NLU";
 
-  constructor(store?: LedgerStore) {
+  constructor(store?: LedgerStore, edge?: EdgeClient) {
     this.robot = new SimRobot((t) => this.broadcast({ kind: "telemetry", data: t }));
-    this.orchestrator = new Orchestrator(this.robot, undefined, store);
+    this.orchestrator = new Orchestrator(this.robot, undefined, store, edge);
   }
 
   async start(): Promise<void> {

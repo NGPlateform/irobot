@@ -47,6 +47,42 @@ impl ActionState {
     pub fn can_transition(self, to: ActionState) -> bool {
         self.allowed_next().contains(&to)
     }
+
+    /// 线级名称（与 TS ActionState 一致，用于 Edge 进程协议）。
+    pub fn wire(self) -> &'static str {
+        use ActionState::*;
+        match self {
+            Proposed => "PROPOSED",
+            Validating => "VALIDATING",
+            PendingApproval => "PENDING_APPROVAL",
+            Accepted => "ACCEPTED",
+            Executing => "EXECUTING",
+            CancelRequested => "CANCEL_REQUESTED",
+            Succeeded => "SUCCEEDED",
+            Failed => "FAILED",
+            Cancelled => "CANCELLED",
+            Expired => "EXPIRED",
+            Rejected => "REJECTED",
+        }
+    }
+
+    pub fn parse_wire(s: &str) -> Option<ActionState> {
+        use ActionState::*;
+        Some(match s {
+            "PROPOSED" => Proposed,
+            "VALIDATING" => Validating,
+            "PENDING_APPROVAL" => PendingApproval,
+            "ACCEPTED" => Accepted,
+            "EXECUTING" => Executing,
+            "CANCEL_REQUESTED" => CancelRequested,
+            "SUCCEEDED" => Succeeded,
+            "FAILED" => Failed,
+            "CANCELLED" => Cancelled,
+            "EXPIRED" => Expired,
+            "REJECTED" => Rejected,
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

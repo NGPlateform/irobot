@@ -3,6 +3,7 @@ import { dirname } from "node:path";
 import { Session } from "./session.js";
 import { createSimServer } from "./server.js";
 import { SqliteLedgerStore, MemoryLedgerStore, type LedgerStore } from "./ledger-store.js";
+import { EdgeClient } from "./edge-client.js";
 
 const PORT = Number(process.env.PORT ?? 8899);
 
@@ -18,7 +19,21 @@ if (dbPath === "off" || dbPath === ":memory:") {
   console.log(`  审计/幂等持久化 → ${dbPath}`);
 }
 
-const session = new Session(store);
+// 可选：Rust Edge daemon 作为权威准入层（云/边进程分离）。
+// IROBOT_EDGE_BIN 指向 edge-daemon 可执行文件（cargo build 产物）。
+let edge: EdgeClient | undefined;
+const edgeBin = process.env.IROBOT_EDGE_BIN;
+if (edgeBin) {
+  const ec = new EdgeClient(edgeBin);
+  if (ec.start()) {
+    edge = ec;
+    console.log(`  Edge daemon（Rust 权威准入）→ ${edgeBin}`);
+  } else {
+    console.log(`  ⚠ Edge daemon 启动失败：${edgeBin}（回退：无 Edge 准入）`);
+  }
+}
+
+const session = new Session(store, edge);
 await session.start();
 
 const server = createSimServer(session);
@@ -30,6 +45,7 @@ server.listen(PORT, () => {
 
 const shutdown = () => {
   session.stop();
+  edge?.stop();
   store.close();
   server.close(() => process.exit(0));
 };

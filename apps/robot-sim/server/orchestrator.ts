@@ -16,6 +16,7 @@ import {
 import { getCapability } from "./capabilities.js";
 import type { SimRobot } from "./sim-robot.js";
 import { MemoryLedgerStore, type LedgerStore, type LedgerEntry } from "./ledger-store.js";
+import type { EdgeClient, EdgeAdmitReq } from "./edge-client.js";
 
 export interface Proposal {
   capabilityId: string;
@@ -78,6 +79,8 @@ export class Orchestrator {
     private robot: SimRobot,
     private approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
     private store: LedgerStore = new MemoryLedgerStore(),
+    // 可选：Rust Edge daemon。设置后，写动作执行前经它权威准入（云/边进程分离）。
+    private edge?: EdgeClient,
   ) {}
 
   cancelActive(): boolean {
@@ -395,6 +398,23 @@ export class Orchestrator {
       return to("REJECTED", { reason: `资源忙：concurrencyKey ${ckey} 正在执行其它写动作` });
     }
 
+    // Rust Edge 权威准入（若启用）：独立进程二次守卫。拒绝即不执行（安全层 fail-closed）。
+    const edgeReq: EdgeAdmitReq = {
+      commandId,
+      idempotencyKey: meta.idempotencyKey,
+      capabilityId: proposal.capabilityId,
+      safetyClass,
+      concurrencyKey: ckey,
+      deadlineMs: meta.deadline ? Date.parse(meta.deadline) : undefined,
+      leaseEpoch: meta.leaseEpoch,
+    };
+    if (this.edge) {
+      const adm = await this.edge.admit(edgeReq, Date.now());
+      if (adm.kind === "rejected") {
+        return to("REJECTED", { reason: `edge: ${adm.reason}` });
+      }
+    }
+
     // 构造并校验 Envelope（审计留痕，同时证明与 action-protocol 一致）。
     this.buildEnvelope(proposal, safetyClass, commandId);
 
@@ -406,15 +426,18 @@ export class Orchestrator {
       if (ev.state) current = applyTransition(current, ev.state);
       emit({ ...ev, commandId });
     };
+    let finalEv: ActionEvent | undefined;
     try {
-      return await this.robot.execute(
+      finalEv = await this.robot.execute(
         { commandId, capabilityId: proposal.capabilityId } as ActionEnvelope,
         resolved.goal,
         resolved.speed,
         forward,
       );
+      return finalEv;
     } finally {
       this.busyConcurrency.delete(ckey); // 终态（成功/失败/取消）后释放
+      if (this.edge) void this.edge.complete(edgeReq, finalEv?.state ?? "FAILED", Date.now());
     }
   }
 }

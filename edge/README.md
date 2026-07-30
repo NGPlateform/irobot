@@ -28,6 +28,24 @@ cd edge/runtime && cargo test --offline    # 14 项测试
 终态不可变、S4 禁止、deadline 过期拒绝、租约 fencing、并发 concurrency_key 互斥、幂等去重、
 前置条件 fail-closed。
 
+## Edge daemon：真实进程接入（云/边分离）
+
+`edge-daemon` 是长驻 Rust 进程，通过 stdin/stdout 行协议（TAB 分隔，见 `src/protocol.rs`）
+对上位机提供 `EdgeGuard` 准入。robot-sim 的 TS Orchestrator 在执行写动作前经它准入 →
+**Rust 安全核心真正进入执行链路**：
+
+```bash
+cargo build --bin edge-daemon                    # 产出 target/debug/edge-daemon
+IROBOT_EDGE_BIN=$(pwd)/edge/runtime/target/debug/edge-daemon \
+  pnpm --filter @irobot/robot-sim dev            # 启动时接入；日志显示 "Edge daemon（Rust 权威准入）"
+```
+
+链路：浏览器/语音 → TS Orchestrator → **Rust edge-daemon 准入** → 机器人执行 → 3D/2D 视图。
+Edge 拒绝即不执行；进程崩溃 fail-closed（拒绝）。未设 `IROBOT_EDGE_BIN` 则不启用（TS 自身守卫仍在）。
+
+行协议（`ADMIT`/`COMPLETE` → `ACCEPTED`/`DEDUP`/`REJECT`/`OK`）由 `edge-client.test.ts` 对
+**真实 daemon** 做集成测试验证（并发互斥/幂等去重由 Rust 进程判定）。
+
 ## 与 TurtleBot 4 的映射
 
 - 导航（NavigateRelative / NavigateToStation）→ Nav2 `NavigateToPose`。
