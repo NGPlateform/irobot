@@ -21,7 +21,18 @@ const SAFETY = [
 
 let turn = 0;
 
-export default definePluginEntry({
+/**
+ * 本地结构化类型：显式标注默认导出，避免 tsc 在 `declaration` 下需要命名 openclaw 内部
+ * 类型（TS2742「inferred type ... cannot be named」不可移植）。宿主按运行时形状加载入口。
+ */
+type PluginEntryExport = {
+  id: string;
+  name: string;
+  description: string;
+  register(api: any): void;
+};
+
+const pluginEntry: PluginEntryExport = definePluginEntry({
   id: "irobot-gateway-adapter",
   name: "iRobot Gateway Adapter",
   description: "把 Agent 的设备动作提案桥接到外部 Command Orchestrator。",
@@ -74,3 +85,5 @@ export default definePluginEntry({
     );
   },
 });
+
+export default pluginEntry;

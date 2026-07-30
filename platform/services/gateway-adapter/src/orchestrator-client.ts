@@ -14,7 +14,7 @@ import { ActionEvent, isTerminal, type ActionEnvelope } from "@irobot/action-pro
 
 export interface SubmitOptions {
   /** 取消信号，来自 OpenClaw 工具执行上下文（turn interruption → cancel/abort）。 */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
   /** 进度回调，映射到 OpenClaw 的 onUpdate 流式回传。 */
   onFeedback?: (event: ActionEvent) => void;
 }
@@ -46,7 +46,7 @@ export async function submitProposal(
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(envelope),
-    signal: opts.signal,
+    signal: opts.signal ?? null,
   });
 
   if (!res.ok || !res.body) {
