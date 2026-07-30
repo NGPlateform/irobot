@@ -113,6 +113,11 @@ export class Session {
     });
   }
 
+  /** 全链路审计查询（G1）。 */
+  ledger() {
+    return this.orchestrator.ledger();
+  }
+
   /** 界面审批决策。 */
   approve(commandId: string, approved: boolean): void {
     const ok = this.orchestrator.resolveApproval(commandId, approved);

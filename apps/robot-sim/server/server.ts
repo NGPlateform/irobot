@@ -43,6 +43,12 @@ export function createSimServer(session: Session) {
       return serveStatic(res, STATIC[url]!);
     }
 
+    if (method === "GET" && url === "/ledger") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(session.ledger(), null, 2));
+      return;
+    }
+
     if (method === "GET" && url === "/events") {
       res.writeHead(200, {
         "content-type": "text/event-stream",

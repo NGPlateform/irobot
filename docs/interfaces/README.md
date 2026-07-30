@@ -7,7 +7,7 @@
 | 1 | Capability Manifest | v0.1 | ✅ 已冻结 | `platform/packages/capability-schema` |
 | 2 | Action Envelope | v0.1 | ✅ 已冻结 | `platform/packages/action-protocol` |
 | 3 | Action Event 与状态机 | v0.1 | ✅ 已冻结 | `platform/packages/action-protocol` |
-| 4 | Orchestrator API | v0.1 | 🚧 待定义（Phase 1） | `platform/services/command-orchestrator` |
+| 4 | Orchestrator API | v0.1 | 🟡 部分（幂等去重 / Action Ledger / deadline+租约 fencing 已实现于 robot-sim orchestrator，含测试；持久化待 SQLite） | `apps/robot-sim/server/orchestrator.ts` |
 | 5 | Edge Transport | v0.1 | 🚧 待定义（Phase 1） | `edge/runtime` |
 | 6 | ROS 2 Action 接口 | v0.1 | 🚧 待定义（Phase 1） | `edge/ros2_ws/src/irobot_interfaces` |
 | 7 | Approval API | v0.1 | ⬜ 未开始（Phase 3） | `platform/services/gateway-adapter` |

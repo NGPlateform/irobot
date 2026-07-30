@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import {
   parseActionEnvelope,
   applyTransition,
+  isTerminal,
   type ActionEnvelope,
   type ActionEvent,
   type ActionState,
@@ -18,6 +19,27 @@ import type { SimRobot } from "./sim-robot.js";
 export interface Proposal {
   capabilityId: string;
   arguments: Record<string, unknown>;
+}
+
+/** 北向 envelope 携带的守卫字段（本地提案不带，逐次唯一）。 */
+export interface DecisionMeta {
+  idempotencyKey: string;
+  deadline?: string;
+  leaseEpoch?: number;
+  expectedStateVersion?: number;
+}
+
+/** Action Ledger 条目：每个命令一生一条终态审计（安全不变量：每次动作可追踪）。 */
+export interface LedgerEntry {
+  commandId: string;
+  idempotencyKey: string;
+  capabilityId: string;
+  finalState: ActionState;
+  reason?: string;
+  leaseEpoch?: number;
+  expectedStateVersion?: number;
+  deduplicated?: boolean;
+  at: string;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -55,6 +77,12 @@ const APPROVAL_TIMEOUT_MS = Number(process.env.IROBOT_APPROVAL_TIMEOUT_MS ?? 300
 
 export class Orchestrator {
   private leaseEpoch = 1;
+  // 幂等结果缓存：idempotencyKey → 终态事件（重试重放，不二次执行，安全不变量 §4.1#6）。
+  private readonly idempotency = new Map<string, ActionEvent>();
+  // 每设备已见的最新租约世代（fencing，安全不变量 §9.2：旧 epoch 一律拒绝）。
+  private deviceLeaseEpoch = 0;
+  // Action Ledger：全链路审计（G1：全链路审计可查询）。demo 内存版，SQLite 持久化为后续。
+  private readonly actionLedger: LedgerEntry[] = [];
   private readonly pendingApprovals = new Map<
     string,
     { resolve: (d: ApprovalDecision) => void; timer: ReturnType<typeof setTimeout> }
@@ -162,7 +190,11 @@ export class Orchestrator {
     proposal: Proposal,
     emit: (ev: ActionEvent) => void,
   ): Promise<ActionEvent> {
-    return this.runDecision(`cmd_${randomUUID()}`, proposal, emit);
+    const commandId = `cmd_${randomUUID()}`;
+    // 本地提案逐次唯一幂等键：不做去重（每次都是新请求）。
+    return this.runDecision(commandId, proposal, emit, {
+      idempotencyKey: `local:${commandId}`,
+    });
   }
 
   /**
@@ -179,13 +211,80 @@ export class Orchestrator {
       e.commandId,
       { capabilityId: e.capabilityId, arguments: e.arguments },
       emit,
+      {
+        idempotencyKey: e.idempotencyKey,
+        deadline: e.deadline,
+        leaseEpoch: e.leaseEpoch,
+        expectedStateVersion: e.expectedStateVersion,
+      },
     );
   }
 
+  /** 只读审计访问（G1：全链路审计可查询）。 */
+  ledger(): readonly LedgerEntry[] {
+    return this.actionLedger;
+  }
+
+  private appendLedger(e: LedgerEntry): void {
+    this.actionLedger.push(e);
+    if (this.actionLedger.length > 1000) this.actionLedger.shift(); // 内存版有界
+  }
+
+  /**
+   * 统一决策入口 = 幂等去重 + 决策核心 + 审计落账。
+   * 相同 idempotencyKey 重试：重放缓存终态，绝不二次执行（恰好一次效果，安全不变量 §4.1#6）。
+   */
   private async runDecision(
     commandId: string,
     proposal: Proposal,
     emit: (ev: ActionEvent) => void,
+    meta: DecisionMeta,
+  ): Promise<ActionEvent> {
+    const cached = this.idempotency.get(meta.idempotencyKey);
+    if (cached && isTerminal(cached.state ?? "SUCCEEDED")) {
+      // 重放：不进状态机、不触达执行器。
+      emit({ commandId, kind: "state_changed", state: "PROPOSED", seq: 0, at: nowIso(), payload: { deduplicated: true } });
+      const replay: ActionEvent = {
+        ...cached,
+        commandId,
+        payload: { ...cached.payload, deduplicated: true, originalCommandId: cached.commandId },
+      };
+      emit(replay);
+      this.appendLedger({
+        commandId,
+        idempotencyKey: meta.idempotencyKey,
+        capabilityId: proposal.capabilityId,
+        finalState: cached.state as ActionState,
+        reason: "deduplicated",
+        deduplicated: true,
+        leaseEpoch: meta.leaseEpoch,
+        expectedStateVersion: meta.expectedStateVersion,
+        at: nowIso(),
+      });
+      return replay;
+    }
+
+    const final = await this.decideCore(commandId, proposal, emit, meta);
+    // 仅缓存"已实际决策"的终态（重放事件不会走到这里）。
+    this.idempotency.set(meta.idempotencyKey, final);
+    this.appendLedger({
+      commandId,
+      idempotencyKey: meta.idempotencyKey,
+      capabilityId: proposal.capabilityId,
+      finalState: (final.state ?? "SUCCEEDED") as ActionState,
+      reason: (final.payload as { reason?: string })?.reason,
+      leaseEpoch: meta.leaseEpoch,
+      expectedStateVersion: meta.expectedStateVersion,
+      at: nowIso(),
+    });
+    return final;
+  }
+
+  private async decideCore(
+    commandId: string,
+    proposal: Proposal,
+    emit: (ev: ActionEvent) => void,
+    meta: DecisionMeta,
   ): Promise<ActionEvent> {
     const manifest = getCapability(proposal.capabilityId);
 
@@ -226,6 +325,22 @@ export class Orchestrator {
     // 安全闸：S4 或不可提案等级从入口拒绝（安全不变量 §4.1）。
     if (!agentMayPropose(safetyClass)) {
       return reject(`${safetyClass} 不允许由 Agent 发起`);
+    }
+
+    // 期限强制（§8.2：deadline 之后不能开始新动作）。
+    if (meta.deadline) {
+      const deadlineMs = Date.parse(meta.deadline);
+      if (Number.isFinite(deadlineMs) && deadlineMs < Date.now()) {
+        return reject(`命令已过期（deadline ${meta.deadline}）`);
+      }
+    }
+
+    // 租约 fencing（§9.2 / §8.2：较旧 leaseEpoch 永远不能覆盖较新 epoch）。
+    if (meta.leaseEpoch != null) {
+      if (meta.leaseEpoch < this.deviceLeaseEpoch) {
+        return reject(`旧租约 epoch ${meta.leaseEpoch} < 当前 ${this.deviceLeaseEpoch}`);
+      }
+      this.deviceLeaseEpoch = Math.max(this.deviceLeaseEpoch, meta.leaseEpoch);
     }
 
     // 查询类（S0）：同步返回，不进物理状态机。
