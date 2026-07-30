@@ -1,5 +1,7 @@
 # irobot — 智能设备与机器人对话执行系统
 
+[![Repo](https://img.shields.io/badge/GitHub-NGPlateform%2Firobot-24292e?logo=github)](https://github.com/NGPlateform/irobot)
+
 将自然语言转化为**可验证、可审计、可取消**的设备动作。核心架构为「慢速认知环 + 快速确定性控制环」双环分离：LLM 只提出目标或候选动作，物理执行由独立的命令编排与边缘安全监督层负责。
 
 - 架构设计：[docs/architecture-design.md](docs/architecture-design.md)
