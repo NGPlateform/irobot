@@ -126,11 +126,35 @@ agent turn exit=0，模型 Responses API 恰好两跳（先 function_call、再�
 - 插件用 esbuild 打成自包含 bundle（内联 @irobot/* 与 typebox，external openclaw），
   经 `openclaw plugins install <dir> --link` 旁加载；隔离 `OPENCLAW_STATE_DIR`，
   **不触碰操作员的 `~/.openclaw`**。
-- 模型用本地 OpenAI-兼容 mock（Responses API SSE，返回 propose_action 工具调用）替代凭据；
-  真实使用换成带 `ANTHROPIC_API_KEY`/`OPENAI_API_KEY` 的 provider 即可，链路不变。
+- 模型用本地 OpenAI-兼容 mock（Responses API SSE，返回 propose_action 工具调用）替代凭据。
 
 结论：`接真实 OpenClaw 网关` 已从"seam 证明"升级为**本机实跑贯通**。合规生产主机上把 mock 换成
 真 provider、把 stub 的重扩展按需装回即可。
+
+### 真实模型（无 mock）也已跑通 — Claude Sonnet 5（订阅登录）
+
+进一步用**真实模型**跑通了同一闭环，且无需 API key——走 OpenClaw 内置的 **Claude CLI 后端**
+（`claude-cli` provider，spawn 本机 `claude` 二进制，复用 `~/.claude` 订阅 OAuth）：
+
+```
+真 OpenClaw 网关（gateway run，默认端口）→ claude-cli 后端 spawn 真实 claude(claude-sonnet-5)
+  → 经 MCP 把 propose_action 暴露给 claude（--allowedTools mcp__openclaw__*）
+  → claude 调用工具 → robot-sim /v1/actions → 机器人 pose.x 1→3
+  → claude 最终答复 "已提交并执行成功：机器人前进 2 米。"
+```
+
+关键要点（真实模型 + 工具调用必须满足）：
+
+- **必须跑完整网关**（`openclaw gateway run`），不能用 `agent --local`。工具经 OpenClaw 的
+  **MCP 服务**桥接给内嵌 claude；MCP 桥只在完整网关下可用，`--local` 嵌入模式不启它。
+- 网关用**默认端口 18789**（或让 CLI 用 `--url` + `--token`/`OPENCLAW_GATEWAY_TOKEN` 显式连接）；
+  仅设 `OPENCLAW_GATEWAY_URL` 而不给 token 会被拒（config 凭据不复用）。
+- 模型 ref：`claude-cli/claude-sonnet-5`（亦支持 opus-5 / fable-5 等）。`claude-cli` 后端用
+  `@anthropic-ai/claude-code`（本机 `claude`），**不依赖**我们 stub 掉的 `claude-agent-sdk` 二进制。
+- 隔离 `OPENCLAW_STATE_DIR`，不动操作员 `~/.openclaw`；确认默认端口未被操作员网关占用后再起。
+
+真实模型跑一轮 claude 会话约 20–26s（`claude live session turn durationMs≈25829`）。这是真机、
+真模型、真订阅、真工具调用、真机器人移动的完整闭环——只有仿真机器人是"仿真"的。
 
 ### 两条安装路径 runbook
 
