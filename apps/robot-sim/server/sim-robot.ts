@@ -61,7 +61,7 @@ const nowIso = () => new Date().toISOString();
  * （架构 §7 数据分类：设备状态只能来自设备/数字孪生）。
  */
 export class SimRobot {
-  private pose: Pose = { x: 1, y: 1, heading: 0 };
+  private pose: Pose;
   private battery = 82;
   private estop = false;
   private localizationHealthy = true;
@@ -78,10 +78,16 @@ export class SimRobot {
     二号站点: { x: 8, y: 6 },
     大厅: { x: 4.5, y: 6.5 },
   };
-  readonly dock = { x: 1, y: 1 };
+  readonly dock: { x: number; y: number };
   readonly restrictedZone = { x: 6, y: 3, label: "危险区" };
 
-  constructor(private onTelemetry: (t: Telemetry) => void) {}
+  constructor(
+    private onTelemetry: (t: Telemetry) => void,
+    start: { x: number; y: number } = { x: 1, y: 1 },
+  ) {
+    this.pose = { x: start.x, y: start.y, heading: 0 };
+    this.dock = { x: start.x, y: start.y }; // 各机器人回自己的起始/充电位
+  }
 
   start(dtMs = 50): void {
     if (this.timer) return;

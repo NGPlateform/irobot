@@ -86,6 +86,7 @@ export class Orchestrator {
     private store: LedgerStore = new MemoryLedgerStore(),
     // 可选：Rust Edge daemon。设置后，写动作执行前经它权威准入（云/边进程分离）。
     private edge?: EdgeClient,
+    private deviceId = "sim-robot-001",
   ) {}
 
   cancelActive(): boolean {
@@ -120,7 +121,7 @@ export class Orchestrator {
     return parseActionEnvelope({
       commandId,
       idempotencyKey: `web-session:${commandId}`,
-      deviceId: "sim-robot-001",
+      deviceId: this.deviceId,
       capabilityId: proposal.capabilityId,
       capabilityVersion: getCapability(proposal.capabilityId)?.version ?? "1.0.0",
       arguments: proposal.arguments,
@@ -264,6 +265,7 @@ export class Orchestrator {
         deduplicated: true,
         leaseEpoch: meta.leaseEpoch,
         expectedStateVersion: meta.expectedStateVersion,
+        deviceId: this.deviceId,
         at: nowIso(),
       });
       return replay;
@@ -280,6 +282,7 @@ export class Orchestrator {
       reason: (final.payload as { reason?: string })?.reason,
       leaseEpoch: meta.leaseEpoch,
       expectedStateVersion: meta.expectedStateVersion,
+      deviceId: this.deviceId,
       at: nowIso(),
     });
     return final;
@@ -443,6 +446,7 @@ export class Orchestrator {
         deduplicated: adm.kind === "deduplicated",
         leaseEpoch: meta.leaseEpoch,
         source: "edge",
+        deviceId: this.deviceId,
         at: nowIso(),
       });
       if (adm.kind === "rejected") {

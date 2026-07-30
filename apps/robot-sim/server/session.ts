@@ -1,50 +1,68 @@
 import type { ActionEvent } from "@irobot/action-protocol";
 import { SimRobot, type Telemetry } from "./sim-robot.js";
-import { Orchestrator, type Proposal } from "./orchestrator.js";
+import { type Proposal } from "./orchestrator.js";
 import { parseIntent, type NluResult } from "./nlu.js";
 import { CAPABILITIES } from "./capabilities.js";
 import { claudeCliAvailable, type AgentWorldContext } from "./agent-claude.js";
 import { ResidentAgent } from "./agent-resident.js";
 import { ApiAgent, apiKeyAvailable } from "./agent-api.js";
-import type { LedgerStore } from "./ledger-store.js";
+import { MemoryLedgerStore, type LedgerStore, type LedgerEntry } from "./ledger-store.js";
 import type { EdgeClient } from "./edge-client.js";
+import { Fleet } from "./fleet.js";
 
-/** 认知慢环后端的统一接口。ApiAgent / ResidentAgent 都实现它。 */
 interface Agent {
   ask(text: string, ctx: AgentWorldContext): Promise<NluResult | null>;
   stop(): void;
 }
 
 export type SseMessage =
-  | { kind: "hello"; telemetry: Telemetry; capabilities: string[]; agent: string }
-  | { kind: "telemetry"; data: Telemetry }
+  | { kind: "hello"; telemetry: Telemetry; robots: Array<{ deviceId: string; telemetry: Telemetry }>; activeDevice: string; capabilities: string[]; agent: string }
+  | { kind: "telemetry"; deviceId: string; data: Telemetry }
   | { kind: "transcript"; role: "user" | "agent"; text: string }
   | { kind: "reply"; text: string }
   | { kind: "status"; busy: boolean; label?: string }
-  | { kind: "action"; event: ActionEvent; capabilityId: string };
+  | { kind: "active"; deviceId: string }
+  | { kind: "action"; event: ActionEvent; capabilityId: string; deviceId: string };
 
 type Subscriber = (msg: SseMessage) => void;
 
+const CN_NUM: Record<string, string> = { 一: "1", 二: "2", 三: "3", 四: "4" };
+
+/** 从文本中解析目标机器人（"二号机器人 前进" / "切换到机器人2"）。 */
+function parseDevice(text: string): { deviceId?: string; rest: string; isSwitch: boolean } {
+  const m = text.match(/([一二三四1234])号机器人|机器人\s*([一二三四1234])|robot\s*([1234])/i);
+  if (!m) return { rest: text, isSwitch: false };
+  const raw = m[1] ?? m[2] ?? m[3] ?? "";
+  const n = CN_NUM[raw] ?? raw;
+  const isSwitch = /切换|选择|激活|控制/.test(text) && text.replace(m[0], "").replace(/[切换到选择激活控制\s，,。]/g, "") === "";
+  const rest = text.replace(m[0], "").replace(/^[，,。\s让把使]*(切换到?|选择|激活|控制)?[，,。\s]*/, "").trim();
+  return { deviceId: `robot-${n}`, rest, isSwitch };
+}
+
 /**
- * 会话：单用户、单仿真机器人。把语音文本经 NLU → Orchestrator → SimRobot 串起来，
- * 并把遥测、动作事件、口播回复广播给所有 SSE 订阅者（浏览器）。
+ * 会话：单用户，管理一个 Fleet（默认 1 台，IROBOT_FLEET=N 开多台）。把语音文本经
+ * NLU → 目标设备的 Orchestrator → SimRobot 串起来，广播遥测/动作/口播（按 deviceId 区分）。
  */
 export class Session {
-  readonly robot: SimRobot;
-  private readonly orchestrator: Orchestrator;
+  readonly robot: SimRobot; // 主设备（robot-1），兼容既有调用
+  private readonly fleet: Fleet;
+  private readonly store: LedgerStore;
+  private activeDevice: string;
   private readonly subscribers = new Set<Subscriber>();
   private readonly history: Array<{ role: "user" | "agent"; text: string }> = [];
   private agent: Agent | null = null;
   private agentName = "规则式 NLU";
 
-  constructor(store?: LedgerStore, edge?: EdgeClient) {
-    this.robot = new SimRobot((t) => this.broadcast({ kind: "telemetry", data: t }));
-    this.orchestrator = new Orchestrator(this.robot, undefined, store, edge);
+  constructor(store: LedgerStore = new MemoryLedgerStore(), edge?: EdgeClient) {
+    this.store = store;
+    const count = Math.max(1, Math.min(4, Number(process.env.IROBOT_FLEET ?? 1)));
+    this.fleet = new Fleet(count, (deviceId, t) => this.broadcast({ kind: "telemetry", deviceId, data: t }), store, edge);
+    this.robot = this.fleet.primary().robot;
+    this.activeDevice = this.fleet.primary().deviceId;
   }
 
   async start(): Promise<void> {
-    this.robot.start();
-    // 后端优先级：显式 mode 优先；auto 时优先 API（近实时），否则常驻 CLI，否则规则式。
+    this.fleet.start();
     const mode = process.env.IROBOT_AGENT ?? "auto";
     const model = process.env.IROBOT_API_MODEL ?? process.env.IROBOT_AGENT_MODEL ?? "haiku";
     if ((mode === "api" || mode === "auto") && apiKeyAvailable()) {
@@ -57,10 +75,11 @@ export class Session {
       this.agentName = `claude 常驻 (${process.env.IROBOT_AGENT_MODEL ?? "haiku"})`;
     }
     if (!this.agent) this.agentName = "规则式 NLU";
+    if (this.fleet.all().length > 1) console.log(`  舰队：${this.fleet.deviceIds().join(", ")}`);
     console.log(`  Agent: ${this.agentName}`);
   }
   stop(): void {
-    this.robot.stop();
+    this.fleet.stop();
     this.agent?.stop();
   }
 
@@ -69,6 +88,8 @@ export class Session {
     fn({
       kind: "hello",
       telemetry: this.robot.telemetry(),
+      robots: this.fleet.all().map((m) => ({ deviceId: m.deviceId, telemetry: m.robot.telemetry() })),
+      activeDevice: this.activeDevice,
       capabilities: [...CAPABILITIES.keys()],
       agent: this.agentName,
     });
@@ -85,49 +106,46 @@ export class Session {
     }
   }
 
-  /** 物理急停通道（UI 的 E-STOP 按钮 / 语音"急停"）。 */
+  /** 物理急停通道：作用于全舰队（安全）。 */
   estop(on: boolean): void {
-    this.robot.setEstop(on);
-    this.broadcast({ kind: "reply", text: on ? "已急停。" : "已解除急停。" });
+    for (const m of this.fleet.all()) m.robot.setEstop(on);
+    this.broadcast({ kind: "reply", text: on ? "已急停（全部）。" : "已解除急停。" });
   }
 
   cancel(): void {
-    const ok = this.orchestrator.cancelActive();
+    const ok = this.fleet.get(this.activeDevice)!.orchestrator.cancelActive();
     if (!ok) this.broadcast({ kind: "reply", text: "当前没有正在执行的动作。" });
   }
 
-  /**
-   * 北向入口：执行来自 OpenClaw 插件的 Action Envelope（HTTP /v1/actions）。
-   * 事件同时流回 HTTP 调用方（onEvent）并广播到浏览器 SSE，让插件触发的动作也在地图可见。
-   */
+  /** 北向入口：按 envelope.deviceId 路由到对应设备的 Orchestrator。 */
   async executeExternalEnvelope(
     envelope: unknown,
     onEvent: (ev: ActionEvent) => void,
   ): Promise<ActionEvent> {
-    const capabilityId =
-      (envelope && typeof envelope === "object" && (envelope as { capabilityId?: string }).capabilityId) ||
-      "external";
-    this.broadcast({ kind: "transcript", role: "user", text: `（OpenClaw 插件动作：${capabilityId}）` });
-    return this.orchestrator.executeEnvelope(envelope, (ev) => {
+    const obj = (envelope ?? {}) as { capabilityId?: string; deviceId?: string };
+    const deviceId = obj.deviceId && this.fleet.get(obj.deviceId) ? obj.deviceId : this.fleet.primary().deviceId;
+    const capabilityId = obj.capabilityId || "external";
+    this.broadcast({ kind: "transcript", role: "user", text: `（OpenClaw 插件动作：${capabilityId} → ${deviceId}）` });
+    return this.fleet.get(deviceId)!.orchestrator.executeEnvelope(envelope, (ev) => {
       onEvent(ev);
-      this.broadcast({ kind: "action", event: ev, capabilityId });
+      this.broadcast({ kind: "action", event: ev, capabilityId, deviceId });
       if (ev.state === "PENDING_APPROVAL") this.say("外部指令为高风险动作，请在界面确认。");
     });
   }
 
-  /** 全链路审计查询（G1）。 */
-  ledger() {
-    return this.orchestrator.ledger();
+  /** 全链路审计查询（G1）；舰队共享一个 store（条目带 deviceId）。 */
+  ledger(): readonly LedgerEntry[] {
+    return this.store.all();
   }
 
-  /** 界面审批决策。 */
+  /** 界面审批决策：在各设备的 Orchestrator 中查找该命令。 */
   approve(commandId: string, approved: boolean): void {
-    const ok = this.orchestrator.resolveApproval(commandId, approved);
+    const ok = this.fleet.all().some((m) => m.orchestrator.resolveApproval(commandId, approved));
     if (!ok) this.broadcast({ kind: "reply", text: "没有待审批的动作，可能已超时。" });
   }
 
-  private worldContext(): AgentWorldContext {
-    const t = this.robot.telemetry();
+  private worldContext(deviceId: string): AgentWorldContext {
+    const t = this.fleet.get(deviceId)!.robot.telemetry();
     return {
       battery: t.battery,
       pose: { x: t.pose.x, y: t.pose.y },
@@ -143,33 +161,46 @@ export class Session {
     this.broadcast({ kind: "transcript", role: "user", text });
     this.history.push({ role: "user", text });
 
-    // 认知慢环：优先 LLM Agent，失败回退规则式 NLU（fail-closed，不阻塞）。
+    // 设备寻址：解析目标机器人前缀（仅多机时）。
+    if (this.fleet.all().length > 1) {
+      const { deviceId, rest, isSwitch } = parseDevice(text);
+      if (deviceId && this.fleet.get(deviceId)) {
+        this.activeDevice = deviceId;
+        this.broadcast({ kind: "active", deviceId });
+        if (isSwitch || !rest) {
+          this.say(`已切换到${deviceId}。`);
+          return;
+        }
+        text = rest; // 用剩余部分做意图解析
+      }
+    }
+    const device = this.activeDevice;
+    const member = this.fleet.get(device)!;
+
     let intent: NluResult | null = null;
     if (this.agent) {
       this.broadcast({ kind: "status", busy: true, label: "思考中…" });
-      intent = await this.agent.ask(text, this.worldContext());
+      intent = await this.agent.ask(text, this.worldContext(device));
       this.broadcast({ kind: "status", busy: false });
     }
     if (!intent) intent = parseIntent(text);
 
     if (intent.kind === "control") {
-      if (intent.control === "estop") this.robot.setEstop(true);
-      else if (intent.control === "clear_estop") this.robot.setEstop(false);
-      else if (intent.control === "cancel") this.orchestrator.cancelActive();
+      if (intent.control === "estop") for (const m of this.fleet.all()) m.robot.setEstop(true);
+      else if (intent.control === "clear_estop") for (const m of this.fleet.all()) m.robot.setEstop(false);
+      else if (intent.control === "cancel") member.orchestrator.cancelActive();
       this.say(intent.reply);
       return;
     }
-
     if (intent.kind === "smalltalk") {
       this.say(intent.reply);
       return;
     }
 
-    // proposal
     this.say(intent.reply);
     const proposal = intent.proposal!;
-    const finalEvent = await this.orchestrator.propose(proposal, (ev) => {
-      this.broadcast({ kind: "action", event: ev, capabilityId: proposal.capabilityId });
+    const finalEvent = await member.orchestrator.propose(proposal, (ev) => {
+      this.broadcast({ kind: "action", event: ev, capabilityId: proposal.capabilityId, deviceId: device });
       if (ev.state === "PENDING_APPROVAL") {
         this.say("这是高风险动作，需要你在界面上确认。请点击批准或拒绝。");
       }

@@ -9,7 +9,11 @@
 ```bash
 pnpm install
 pnpm --filter @irobot/robot-sim dev
-# 打开 http://localhost:8899
+# 打开 http://localhost:8899（3D 视图 /3d）
+
+# 多机器人舰队（默认 1 台）：
+IROBOT_FLEET=2 pnpm --filter @irobot/robot-sim dev
+# 指令按设备寻址：“二号机器人去大厅”、“切换到机器人2”；不同控制域并行，同设备单写者。
 ```
 
 语音识别（STT）与合成（TTS）用浏览器原生 **Web Speech API**，**零外部 API、零密钥**。

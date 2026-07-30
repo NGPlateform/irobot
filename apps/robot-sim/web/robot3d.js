@@ -4,6 +4,8 @@ const scene = window.IRobotScene.createRobotScene($("scene3d"));
 
 let telemetry = null;
 let currentState = "IDLE";
+let activeDevice = null;
+const teleByDevice = {};
 
 const STATE_LABEL = {
   IDLE: "待命", EXECUTING: "执行中", SUCCEEDED: "完成", REJECTED: "已拒绝",
@@ -23,30 +25,44 @@ function updateReadouts() {
 const es = new EventSource("/events");
 es.onmessage = (e) => {
   const msg = JSON.parse(e.data);
-  if (msg.kind === "hello") { telemetry = msg.telemetry; $("agent-badge").textContent = "Agent: " + msg.agent; scene.update(telemetry); }
-  else if (msg.kind === "status") { $("thinking").classList.toggle("hidden", !msg.busy); }
-  else if (msg.kind === "telemetry") { telemetry = msg.data; scene.update(telemetry); }
+  if (msg.kind === "hello") {
+    $("agent-badge").textContent = "Agent: " + msg.agent;
+    activeDevice = msg.activeDevice;
+    for (const r of msg.robots || [{ deviceId: msg.activeDevice, telemetry: msg.telemetry }]) {
+      teleByDevice[r.deviceId] = r.telemetry;
+      scene.update(r.deviceId, r.telemetry);
+    }
+    scene.setActive(activeDevice);
+    telemetry = teleByDevice[activeDevice];
+    updateReadouts();
+  } else if (msg.kind === "status") { $("thinking").classList.toggle("hidden", !msg.busy); }
+  else if (msg.kind === "telemetry") {
+    teleByDevice[msg.deviceId] = msg.data;
+    scene.update(msg.deviceId, msg.data);
+    if (msg.deviceId === activeDevice) { telemetry = msg.data; updateReadouts(); }
+  }
+  else if (msg.kind === "active") { activeDevice = msg.deviceId; scene.setActive(activeDevice); telemetry = teleByDevice[activeDevice]; updateReadouts(); }
   else if (msg.kind === "transcript") { addMsg(msg.role, msg.text); }
   else if (msg.kind === "reply") { speak(msg.text); }
-  else if (msg.kind === "action") { onAction(msg.event); }
-  updateReadouts();
+  else if (msg.kind === "action") { onAction(msg.event, msg.deviceId); }
 };
 
-function onAction(ev) {
-  if (ev.state) currentState = ev.state;
-  scene.setState(ev.state, ev.progress);
+function onAction(ev, deviceId) {
+  scene.setState(deviceId, ev.state);
+  if (deviceId === activeDevice && ev.state) { currentState = ev.state; updateReadouts(); }
   if (ev.state === "PENDING_APPROVAL") showApproval(ev);
   if (["SUCCEEDED", "FAILED", "CANCELLED", "REJECTED", "EXPIRED"].includes(ev.state) && ev.commandId === pendingApprovalId) hideApproval();
+  const dev = deviceId && deviceId !== activeDevice ? `[${deviceId}] ` : "";
   const label = ev.kind === "feedback"
     ? `feedback <span class="pr">${Math.round((ev.progress ?? 0) * 100)}%</span>`
     : `<span class="st">${ev.state ?? ev.kind}</span>`;
   const reason = ev.payload && ev.payload.reason ? ` · ${ev.payload.reason}` : "";
   const row = document.createElement("div");
   row.className = "evt s-" + (ev.state ?? "");
-  row.innerHTML = `<span>${label}${reason}</span><span>#${ev.seq}</span>`;
+  row.innerHTML = `<span>${dev}${label}${reason}</span><span>#${ev.seq}</span>`;
   const box = $("actions"); box.appendChild(row); box.scrollTop = box.scrollHeight;
   if (["SUCCEEDED", "FAILED", "CANCELLED", "REJECTED", "EXPIRED"].includes(ev.state)) {
-    setTimeout(() => { if (currentState === ev.state) { currentState = "IDLE"; scene.setState("IDLE"); } }, 400);
+    setTimeout(() => { const r = teleByDevice[deviceId]; if (deviceId === activeDevice && currentState === ev.state) { currentState = "IDLE"; } scene.setState(deviceId, "IDLE"); }, 400);
   }
 }
 

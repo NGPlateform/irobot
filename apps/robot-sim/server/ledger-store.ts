@@ -29,6 +29,8 @@ export interface LedgerEntry {
   deduplicated?: boolean;
   /** 决策来源：orchestrator（TS 慢环）或 edge（Rust 权威准入）。 */
   source?: "orchestrator" | "edge";
+  /** 设备 id（舰队多机时区分）。 */
+  deviceId?: string;
   at: string;
 }
 
@@ -89,14 +91,16 @@ export class SqliteLedgerStore implements LedgerStore {
         expected_state_version INTEGER,
         deduplicated INTEGER NOT NULL DEFAULT 0,
         source TEXT NOT NULL DEFAULT 'orchestrator',
+        device_id TEXT NOT NULL DEFAULT 'sim-robot-001',
         at TEXT NOT NULL
       );
     `);
-    // 兼容旧库：若无 source 列则补上（新库已含）。
-    try {
-      this.db.exec(`ALTER TABLE action_ledger ADD COLUMN source TEXT NOT NULL DEFAULT 'orchestrator'`);
-    } catch {
-      /* 列已存在 */
+    // 兼容旧库：补列（新库已含）。
+    for (const ddl of [
+      `ALTER TABLE action_ledger ADD COLUMN source TEXT NOT NULL DEFAULT 'orchestrator'`,
+      `ALTER TABLE action_ledger ADD COLUMN device_id TEXT NOT NULL DEFAULT 'sim-robot-001'`,
+    ]) {
+      try { this.db.exec(ddl); } catch { /* 列已存在 */ }
     }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS idempotency (
@@ -111,8 +115,8 @@ export class SqliteLedgerStore implements LedgerStore {
     this.db
       .prepare(
         `INSERT INTO action_ledger
-         (command_id, idempotency_key, capability_id, final_state, reason, lease_epoch, expected_state_version, deduplicated, source, at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (command_id, idempotency_key, capability_id, final_state, reason, lease_epoch, expected_state_version, deduplicated, source, device_id, at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         e.commandId,
@@ -124,6 +128,7 @@ export class SqliteLedgerStore implements LedgerStore {
         e.expectedStateVersion ?? null,
         e.deduplicated ? 1 : 0,
         e.source ?? "orchestrator",
+        e.deviceId ?? "sim-robot-001",
         e.at,
       );
   }
@@ -143,6 +148,7 @@ export class SqliteLedgerStore implements LedgerStore {
         r.expected_state_version == null ? undefined : Number(r.expected_state_version),
       deduplicated: Number(r.deduplicated) === 1,
       source: (r.source == null ? "orchestrator" : String(r.source)) as "orchestrator" | "edge",
+      deviceId: r.device_id == null ? undefined : String(r.device_id),
       at: String(r.at),
     }));
   }
