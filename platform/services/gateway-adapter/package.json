@@ -12,12 +12,16 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build:plugin": "tsc -p tsconfig.plugin.json"
+    "build:plugin": "node build-plugin.mjs"
   },
   "dependencies": {
     "@irobot/action-protocol": "workspace:*",
     "@irobot/policy-contract": "workspace:*",
     "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "typebox": "^1.1.39"
   },
   "peerDependencies": {
     "openclaw": ">=2026.3.24-beta.2"

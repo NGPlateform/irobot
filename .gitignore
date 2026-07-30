@@ -40,3 +40,7 @@ edge/ros2_ws/log/
 
 # claude-mem session context (regenerated per session)
 /AGENTS.md
+
+# 例外：提交可安装的 OpenClaw 插件 bundle（自包含产物）
+!platform/services/gateway-adapter/dist/
+!platform/services/gateway-adapter/dist/**

@@ -38,6 +38,23 @@ docs/                # 架构、计划、ADR、接口、风险
 
 研究基线仓库 `claude-code/`、`hermes-agent/`、`openclaw/` 仅作设计参考，不纳入产品代码历史（见 `.gitignore`）。
 
+## 作为 OpenClaw 插件运行
+
+`platform/services/gateway-adapter` 是一个真正的 OpenClaw 工具插件（注册 `propose_action`），
+把模型的动作提案桥接到外部 Command Orchestrator（`apps/robot-sim` 的 `/v1/actions`）。
+
+```bash
+# 打成自包含 bundle（内联 @irobot/* 与 typebox，仅 openclaw external）
+pnpm --filter @irobot/gateway-adapter build:plugin   # → dist/ 可 openclaw plugins install --link
+
+# 一键端到端复现：真 OpenClaw 网关 → 模型 → propose_action 插件 → robot-sim → 机器人移动
+#（需 Node>=24.15 与已装依赖的 OpenClaw；默认 ./openclaw，可 OPENCLAW_DIR 覆盖）
+scripts/run-openclaw-e2e.sh "前进两米"
+```
+
+已在本机真网关（OpenClaw 2026.7.2）跑通完整闭环，细节与合规主机 runbook 见
+[docs/spikes/openclaw-integration.md](docs/spikes/openclaw-integration.md)。
+
 ## 开发
 
 ```bash
