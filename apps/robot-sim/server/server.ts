@@ -10,6 +10,10 @@ const STATIC: Record<string, string> = {
   "/index.html": "index.html",
   "/app.js": "app.js",
   "/styles.css": "styles.css",
+  "/3d": "robot3d.html",
+  "/robot3d.html": "robot3d.html",
+  "/robot3d.js": "robot3d.js",
+  "/scene3d.bundle.js": "scene3d.bundle.js",
 };
 const MIME: Record<string, string> = {
   html: "text/html; charset=utf-8",

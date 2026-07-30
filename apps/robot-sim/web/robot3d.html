@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iRobot 3D · 虚拟 TurtleBot 4</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <style>
+      #scene3d { width: 100%; height: 62vh; min-height: 360px; display: block; border-radius: 10px; background: #0e141d; border: 1px solid var(--line); }
+      .stage-head .tb { font-family: var(--mono); font-size: 11px; color: var(--flow); background: #0d2830; border: 1px solid #16414a; border-radius: 999px; padding: 3px 10px; }
+      .switch { margin-left: 8px; font-size: 12px; color: var(--ink-faint); }
+      .switch a { color: var(--flow); text-decoration: none; }
+    </style>
+  </head>
+  <body>
+    <div id="estop-banner" class="hidden">⚠ 已急停 — 所有动作已停止 <button id="clear-estop">解除急停</button></div>
+    <div id="approval" class="approval hidden"></div>
+
+    <div class="app">
+      <section class="stage">
+        <header class="stage-head">
+          <h1>iRobot 3D 控制台</h1>
+          <span class="tb">虚拟 TurtleBot 4 · ROS 2 Jazzy 映射</span>
+          <span id="agent-badge" class="agent-badge">–</span>
+          <span class="switch"><a href="/">切换 2D 视图</a></span>
+        </header>
+        <canvas id="scene3d"></canvas>
+        <div class="readouts">
+          <div class="ro"><span class="k">状态</span><b id="ro-state">待命</b></div>
+          <div class="ro"><span class="k">电量</span><b id="ro-battery">–</b></div>
+          <div class="ro"><span class="k">坐标</span><b id="ro-pose">–</b></div>
+          <div class="ro"><span class="k">stateVersion</span><b id="ro-sv">–</b></div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="voice">
+          <button id="mic" class="mic"><span class="dot"></span><span id="mic-label">按住说话</span></button>
+          <div class="typed">
+            <input id="text-in" type="text" placeholder="或在此输入指令，回车发送" />
+            <button id="send">发送</button>
+          </div>
+          <div class="controls">
+            <button id="cancel" class="ctl">取消动作</button>
+            <button id="estop" class="ctl danger">急停</button>
+          </div>
+          <p id="voice-note" class="note"></p>
+          <div id="thinking" class="thinking hidden"><span class="spin"></span>思考中…</div>
+        </div>
+        <div class="col-head">对话</div>
+        <div id="transcript" class="transcript"></div>
+        <div class="col-head">动作事件</div>
+        <div id="actions" class="actions"></div>
+        <div class="hint">试试：“前进两米”、“去二号站点”、“进入危险区”(S3 审批)、“电量多少”、“返回充电”、“取消”、“急停”。</div>
+      </aside>
+    </div>
+
+    <script src="/scene3d.bundle.js"></script>
+    <script src="/robot3d.js"></script>
+  </body>
+</html>
