@@ -200,6 +200,10 @@ export class Session {
           return "已返回充电站，开始充电。";
         case "robot.navigation.enter_restricted_zone":
           return "审批通过，已进入危险区。";
+        case "robot.arm.move_to_pose": {
+          const poseLabel: Record<string, string> = { stow: "已收起机械臂", reach: "机械臂已伸出", grasp: "机械臂已抓取", lift: "机械臂已抬起" };
+          return poseLabel[String(proposal.arguments.pose)] ?? "机械臂动作完成。";
+        }
         default:
           return "动作完成。";
       }

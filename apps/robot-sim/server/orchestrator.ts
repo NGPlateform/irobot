@@ -23,6 +23,11 @@ export interface Proposal {
   arguments: Record<string, unknown>;
 }
 
+/** 解算后的动作：base 导航（goal+speed）或 arm 机械臂（pose+ext/grip/dur）。 */
+type ResolvedAction =
+  | { kind: "base"; goal: { x: number; y: number }; speed: number }
+  | { kind: "arm"; pose: string; ext: number; grip: number; durationS: number };
+
 /** 北向 envelope 携带的守卫字段（本地提案不带，逐次唯一）。 */
 export interface DecisionMeta {
   idempotencyKey: string;
@@ -84,8 +89,7 @@ export class Orchestrator {
   ) {}
 
   cancelActive(): boolean {
-    const id = this.robot.activeCommandId();
-    return id ? this.robot.requestCancel(id) : false;
+    return this.robot.cancelAll(); // 取消所有进行中动作（base + arm）
   }
 
   /** 界面审批决策入口。返回是否命中一个待审批命令。 */
@@ -138,16 +142,27 @@ export class Orchestrator {
     });
   }
 
-  private resolveGoal(
-    proposal: Proposal,
-  ): { goal: { x: number; y: number }; speed: number } | { error: string } {
+  private resolveGoal(proposal: Proposal): ResolvedAction | { error: string } {
     const t = this.robot.telemetry();
     switch (proposal.capabilityId) {
+      case "robot.arm.move_to_pose": {
+        const pose = String(proposal.arguments.pose ?? "");
+        const ARM: Record<string, { ext: number; grip: number; dur: number }> = {
+          stow: { ext: 0, grip: 0, dur: 1.5 },
+          reach: { ext: 1, grip: 0, dur: 2 },
+          grasp: { ext: 1, grip: 1, dur: 2 },
+          lift: { ext: 0.6, grip: 1, dur: 1.5 },
+        };
+        const a = ARM[pose];
+        if (!a) return { error: `未知机械臂位姿：${pose || "（空）"}` };
+        return { kind: "arm", pose, ext: a.ext, grip: a.grip, durationS: a.dur };
+      }
       case "robot.navigation.navigate_relative": {
         const d = Number(proposal.arguments.distanceM);
         if (!Number.isFinite(d)) return { error: "缺少有效的移动距离" };
         const speed = Number(proposal.arguments.maxSpeedMps) || 0.4;
         return {
+          kind: "base",
           goal: {
             x: t.pose.x + Math.cos(t.pose.heading) * d,
             y: t.pose.y + Math.sin(t.pose.heading) * d,
@@ -159,12 +174,13 @@ export class Orchestrator {
         const name = String(proposal.arguments.station ?? "");
         const s = t.stations[name];
         if (!s) return { error: `未知站点：${name || "（空）"}` };
-        return { goal: { x: s.x, y: s.y }, speed: 0.5 };
+        return { kind: "base", goal: { x: s.x, y: s.y }, speed: 0.5 };
       }
       case "robot.navigation.return_to_dock":
-        return { goal: { x: t.dock.x, y: t.dock.y }, speed: 0.5 };
+        return { kind: "base", goal: { x: t.dock.x, y: t.dock.y }, speed: 0.5 };
       case "robot.navigation.enter_restricted_zone":
         return {
+          kind: "base",
           goal: { x: t.restrictedZone.x, y: t.restrictedZone.y },
           speed: 0.4,
         };
@@ -447,12 +463,14 @@ export class Orchestrator {
     };
     let finalEv: ActionEvent | undefined;
     try {
-      finalEv = await this.robot.execute(
-        { commandId, capabilityId: proposal.capabilityId } as ActionEnvelope,
-        resolved.goal,
-        resolved.speed,
-        forward,
-      );
+      finalEv = await (resolved.kind === "arm"
+        ? this.robot.executeArm(commandId, resolved.pose, resolved.ext, resolved.grip, resolved.durationS, forward)
+        : this.robot.execute(
+            { commandId, capabilityId: proposal.capabilityId } as ActionEnvelope,
+            resolved.goal,
+            resolved.speed,
+            forward,
+          ));
       return finalEv;
     } finally {
       this.busyConcurrency.delete(ckey); // 终态（成功/失败/取消）后释放

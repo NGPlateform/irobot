@@ -63,6 +63,24 @@ function buildTurtleBot4() {
     new THREE.MeshStandardMaterial({ color: 0x33373f }),
   );
   cam.position.set(0.1, 0.24, 0); g.add(cam);
+  // 机械臂：前顶铰接臂 + 夹爪。extension 控制展开角，gripper 控制夹爪开合。
+  const armPivot = new THREE.Group();
+  armPivot.position.set(0.15, 0.24, 0);
+  g.add(armPivot);
+  const boom = new THREE.Mesh(
+    new THREE.BoxGeometry(0.26, 0.028, 0.028),
+    new THREE.MeshStandardMaterial({ color: 0x3a4551, metalness: 0.3, roughness: 0.6 }),
+  );
+  boom.position.x = 0.13; armPivot.add(boom);
+  const gripper = new THREE.Group();
+  gripper.position.x = 0.27; armPivot.add(gripper);
+  const fingerMat = new THREE.MeshStandardMaterial({ color: 0x4fc4d1 });
+  const f1 = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.016, 0.016), fingerMat);
+  const f2 = f1.clone();
+  gripper.add(f1); gripper.add(f2);
+  armPivot.rotation.z = Math.PI / 2; // 默认收起（竖直）
+  g.userData.arm = { pivot: armPivot, f1, f2 };
+
   // 执行进度环（默认隐藏）
   const ringPad = new THREE.Mesh(
     new THREE.RingGeometry(0.22, 0.26, 48),
@@ -258,6 +276,13 @@ export function createRobotScene(canvas) {
     robot.rotation.y = -t.pose.heading;
     pushTrail(p);
     updateLidar(p.x, p.z);
+    // 机械臂姿态：extension 0→收起(竖直) 1→前伸(水平)；gripper 0→张开 1→闭合。
+    if (t.arm && robot.userData.arm) {
+      const { pivot, f1, f2 } = robot.userData.arm;
+      pivot.rotation.z = (Math.PI / 2) * (1 - t.arm.extension);
+      const sep = 0.05 - 0.038 * t.arm.gripper;
+      f1.position.z = sep; f2.position.z = -sep;
+    }
     const ring = robot.userData.progress;
     ring.visible = executing;
     if (executing) {

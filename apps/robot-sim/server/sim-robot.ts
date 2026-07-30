@@ -17,6 +17,8 @@ export interface Telemetry {
   stations: Record<string, { x: number; y: number }>;
   dock: { x: number; y: number };
   restrictedZone: { x: number; y: number; label: string };
+  /** 机械臂：extension 0(收起)..1(伸展)，gripper 0(张开)..1(闭合)。 */
+  arm: { extension: number; gripper: number; moving: boolean };
 }
 
 interface ActiveMotion {
@@ -26,6 +28,22 @@ interface ActiveMotion {
   speed: number;
   distanceTotal: number;
   distanceDone: number;
+  lastFeedbackAt: number;
+  seq: number;
+  cancelled: boolean;
+  emit: (ev: ActionEvent) => void;
+  resolve: (ev: ActionEvent) => void;
+}
+
+interface ActiveArm {
+  commandId: string;
+  pose: string;
+  startExt: number;
+  targetExt: number;
+  startGrip: number;
+  targetGrip: number;
+  durationS: number;
+  elapsed: number;
   lastFeedbackAt: number;
   seq: number;
   cancelled: boolean;
@@ -50,6 +68,9 @@ export class SimRobot {
   private stateVersion = 1;
   private charging = false;
   private active: ActiveMotion | null = null;
+  private activeArm: ActiveArm | null = null;
+  private armExtension = 0;
+  private armGripper = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
 
   readonly stations: Record<string, { x: number; y: number }> = {
@@ -87,6 +108,11 @@ export class SimRobot {
       stations: this.stations,
       dock: this.dock,
       restrictedZone: this.restrictedZone,
+      arm: {
+        extension: Math.round(this.armExtension * 1000) / 1000,
+        gripper: Math.round(this.armGripper * 1000) / 1000,
+        moving: this.activeArm !== null,
+      },
     };
   }
 
@@ -106,20 +132,32 @@ export class SimRobot {
   }
 
   isBusy(): boolean {
-    return this.active !== null;
+    return this.active !== null || this.activeArm !== null;
   }
 
   activeCommandId(): string | null {
-    return this.active?.commandId ?? null;
+    return this.active?.commandId ?? this.activeArm?.commandId ?? null;
   }
 
-  /** 请求取消当前动作（Orchestrator 侧收到 cancel/abort 后调用）。 */
+  /** 请求取消某个进行中的动作（base 或 arm）。 */
   requestCancel(commandId: string): boolean {
     if (this.active && this.active.commandId === commandId) {
       this.active.cancelled = true;
       return true;
     }
+    if (this.activeArm && this.activeArm.commandId === commandId) {
+      this.activeArm.cancelled = true;
+      return true;
+    }
     return false;
+  }
+
+  /** 取消所有进行中的动作（base + arm）。 */
+  cancelAll(): boolean {
+    let any = false;
+    if (this.active) { this.active.cancelled = true; any = true; }
+    if (this.activeArm) { this.activeArm.cancelled = true; any = true; }
+    return any;
   }
 
   /** 同步查询能力（S0）。 */
@@ -189,6 +227,46 @@ export class SimRobot {
     });
   }
 
+  /**
+   * 开始一个机械臂动作（concurrencyKey=arm，与导航并行）。到目标 extension/gripper。
+   * arm 忙时拒绝（单写者，但独立于 base_motion）。
+   */
+  executeArm(
+    commandId: string,
+    poseName: string,
+    targetExt: number,
+    targetGrip: number,
+    durationS: number,
+    emit: (ev: ActionEvent) => void,
+  ): Promise<ActionEvent> {
+    if (this.activeArm) {
+      return Promise.resolve(
+        this.finalEvent(commandId, 0, "FAILED", {
+          reason: "device_busy",
+          activeCommandId: this.activeArm.commandId,
+        }),
+      );
+    }
+    emit({ commandId, kind: "state_changed", state: "EXECUTING", seq: 0, at: nowIso(), payload: {} });
+    return new Promise<ActionEvent>((resolve) => {
+      this.activeArm = {
+        commandId,
+        pose: poseName,
+        startExt: this.armExtension,
+        targetExt,
+        startGrip: this.armGripper,
+        targetGrip,
+        durationS: Math.max(durationS, 0.1),
+        elapsed: 0,
+        lastFeedbackAt: 0,
+        seq: 1,
+        cancelled: false,
+        emit,
+        resolve,
+      };
+    });
+  }
+
   // ---- 内部 ----
 
   private bump(): void {
@@ -206,32 +284,91 @@ export class SimRobot {
   }
 
   private tick(dt: number): void {
-    const a = this.active;
-    if (a) {
-      // 急停优先：即时安全终止进行中的动作。
-      if (this.estop) {
-        this.completeActive("FAILED", { reason: "estop" });
-      } else if (a.cancelled) {
-        // 状态机要求 EXECUTING → CANCEL_REQUESTED → CANCELLED，不能直达。
-        a.emit({
-          commandId: a.commandId,
-          kind: "state_changed",
-          state: "CANCEL_REQUESTED",
-          seq: a.seq++,
-          at: nowIso(),
-          payload: {},
-        });
-        this.completeActive("CANCELLED", { reason: "user_cancel" });
-      } else {
-        this.advance(a, dt);
-      }
-    } else if (this.charging && this.battery < 100) {
+    // base_motion 与 arm 两个资源并行推进。
+    this.tickBase(dt);
+    this.tickArm(dt);
+    if (!this.active && !this.activeArm && this.charging && this.battery < 100) {
       this.battery = Math.min(100, this.battery + 6 * dt);
-      this.bump();
+      this.stateVersion++;
+    }
+    // 每 tick 推一次遥测，让画面平滑。
+    this.onTelemetry(this.telemetry());
+  }
+
+  private tickBase(dt: number): void {
+    const a = this.active;
+    if (!a) return;
+    if (this.estop) {
+      this.completeActive("FAILED", { reason: "estop" });
+    } else if (a.cancelled) {
+      // 状态机要求 EXECUTING → CANCEL_REQUESTED → CANCELLED，不能直达。
+      a.emit({
+        commandId: a.commandId,
+        kind: "state_changed",
+        state: "CANCEL_REQUESTED",
+        seq: a.seq++,
+        at: nowIso(),
+        payload: {},
+      });
+      this.completeActive("CANCELLED", { reason: "user_cancel" });
+    } else {
+      this.advance(a, dt);
+    }
+  }
+
+  private tickArm(dt: number): void {
+    const a = this.activeArm;
+    if (!a) return;
+    if (this.estop) {
+      this.completeArm("FAILED", { reason: "estop" });
       return;
     }
-    // 常规遥测心跳（即便无动作也推送，让画面平滑）。
-    this.onTelemetry(this.telemetry());
+    if (a.cancelled) {
+      a.emit({
+        commandId: a.commandId,
+        kind: "state_changed",
+        state: "CANCEL_REQUESTED",
+        seq: a.seq++,
+        at: nowIso(),
+        payload: {},
+      });
+      this.completeArm("CANCELLED", { reason: "user_cancel" });
+      return;
+    }
+    a.elapsed += dt;
+    const t = Math.min(1, a.elapsed / a.durationS);
+    this.armExtension = a.startExt + (a.targetExt - a.startExt) * t;
+    this.armGripper = a.startGrip + (a.targetGrip - a.startGrip) * t;
+    this.battery = Math.max(0, this.battery - 0.4 * dt); // 机械臂能耗较低
+    this.stateVersion++;
+    a.lastFeedbackAt += dt;
+    if (a.lastFeedbackAt >= 0.2 || t >= 1) {
+      a.lastFeedbackAt = 0;
+      a.emit({
+        commandId: a.commandId,
+        kind: "feedback",
+        seq: a.seq++,
+        at: nowIso(),
+        progress: t,
+        payload: { extension: Math.round(this.armExtension * 1000) / 1000, gripper: Math.round(this.armGripper * 1000) / 1000 },
+      });
+    }
+    if (t >= 1) {
+      this.completeArm("SUCCEEDED", { pose: a.pose, extension: this.armExtension, gripper: this.armGripper });
+    }
+  }
+
+  private completeArm(
+    state: "SUCCEEDED" | "FAILED" | "CANCELLED",
+    payload: Record<string, unknown>,
+  ): void {
+    const a = this.activeArm;
+    if (!a) return;
+    this.activeArm = null;
+    const ev = this.finalEvent(a.commandId, a.seq, state, payload);
+    a.emit(ev);
+    a.resolve(ev);
+    this.bump();
   }
 
   private advance(a: ActiveMotion, dt: number): void {
@@ -270,8 +407,6 @@ export class SimRobot {
         },
       });
     }
-
-    this.onTelemetry(this.telemetry());
 
     if (t >= 1) {
       const isDock =

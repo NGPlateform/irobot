@@ -94,6 +94,21 @@ export function parseIntent(raw: string): NluResult {
     };
   }
 
+  // 机械臂（concurrencyKey=arm，可与导航并行）
+  if (/(机械臂|机械手|手臂|抓取|夹取|伸出|伸展|收起|收回|抬起)/.test(text)) {
+    let pose = "reach";
+    if (/(收起|收回|放下)/.test(text)) pose = "stow";
+    else if (/(抓取|夹取|夹住|抓住)/.test(text)) pose = "grasp";
+    else if (/(抬起|举起)/.test(text)) pose = "lift";
+    else if (/(伸出|伸展|伸开)/.test(text)) pose = "reach";
+    const label: Record<string, string> = { stow: "收起机械臂", reach: "伸出机械臂", grasp: "机械臂抓取", lift: "机械臂抬起" };
+    return {
+      kind: "proposal",
+      proposal: { capabilityId: "robot.arm.move_to_pose", arguments: { pose } },
+      reply: `好的，${label[pose]}。`,
+    };
+  }
+
   // 进入受限/危险区（S3，将触发人工审批）
   if (/(危险区|受限区|禁区|危险区域|受限区域)/.test(text)) {
     return {

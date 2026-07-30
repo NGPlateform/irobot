@@ -10,6 +10,14 @@ function stack() {
   return { robot, orch: new Orchestrator(robot) };
 }
 
+async function waitFor(cond: () => boolean, ms = 3000): Promise<void> {
+  const start = Date.now();
+  while (!cond()) {
+    if (Date.now() - start > ms) throw new Error("waitFor 超时");
+    await new Promise((r) => setTimeout(r, 5));
+  }
+}
+
 function envelope(over: Record<string, unknown> = {}) {
   return parseActionEnvelope({
     commandId: `cmd_${randomUUID()}`,
@@ -106,6 +114,42 @@ describe("Orchestrator 安全不变量（开发计划 §8.2）", () => {
     await p3;
     robot.stop();
     expect(states).toContain("EXECUTING"); // key 已释放，可再次执行
+  });
+
+  it("第二 concurrencyKey 并行：导航(base_motion) 与 机械臂(arm) 同时执行", async () => {
+    const robot = new SimRobot(() => {});
+    robot.start(10);
+    const orch = new Orchestrator(robot);
+    // 启动导航（base_motion），不 await
+    let navExec = false;
+    const nav = orch.propose(
+      { capabilityId: "robot.navigation.navigate_to_station", arguments: { station: "二号站点" } },
+      (e) => { if (e.state === "EXECUTING") navExec = true; },
+    );
+    await waitFor(() => navExec);
+    // 导航执行中，启动机械臂（arm key）→ 不同 key，应并行接受并执行
+    let armExec = false;
+    const arm = orch.propose(
+      { capabilityId: "robot.arm.move_to_pose", arguments: { pose: "reach" } },
+      (e) => { if (e.state === "EXECUTING") armExec = true; },
+    );
+    await waitFor(() => armExec);
+    // 此刻两者并行执行
+    expect(robot.telemetry().arm.moving).toBe(true);
+    expect(robot.isBusy()).toBe(true);
+    // 机械臂执行中，第二个 arm 动作被拒（同 key 互斥）
+    const arm2 = await orch.propose(
+      { capabilityId: "robot.arm.move_to_pose", arguments: { pose: "stow" } },
+      () => {},
+    );
+    expect(arm2.state).toBe("REJECTED");
+    // 机械臂先完成（时长短），且到达 reach（extension≈1）；导航不受影响仍在跑
+    const armFinal = await arm;
+    expect(armFinal.state).toBe("SUCCEEDED");
+    expect(robot.telemetry().arm.extension).toBeCloseTo(1, 1);
+    orch.cancelActive();
+    await nav;
+    robot.stop();
   });
 
   it("Action Ledger：每个命令落一条终态审计，去重项标记 deduplicated", async () => {
