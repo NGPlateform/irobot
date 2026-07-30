@@ -132,6 +132,75 @@ agent turn exit=0，模型 Responses API 恰好两跳（先 function_call、再�
 结论：`接真实 OpenClaw 网关` 已从"seam 证明"升级为**本机实跑贯通**。合规生产主机上把 mock 换成
 真 provider、把 stub 的重扩展按需装回即可。
 
+### 两条安装路径 runbook
+
+先构建自包含 bundle（内联 @irobot/* 与 typebox，仅 openclaw external）：
+
+```bash
+pnpm --filter @irobot/gateway-adapter build:plugin   # → platform/services/gateway-adapter/dist/
+```
+
+`dist/` 即一个可安装的插件目录（openclaw-plugin.js + package.json + openclaw.plugin.json）。
+两条路径都在安装后需要同一份配置，且都要求 **robot-sim 作为外部 Orchestrator 已在运行**
+（`pnpm --filter @irobot/robot-sim dev`）。以下 `openclaw` 指在 OpenClaw 仓库根内运行的 CLI。
+
+#### 路径 A · 开发/源码侧加载（`--link`）— ✅ 本机已验证
+
+链接本地目录，改一次 `build:plugin` 即时生效，最适合本仓库开发：
+
+```bash
+openclaw plugins install platform/services/gateway-adapter/dist --link --force
+# 配置 + 启用（见下方「安装后配置」）
+```
+
+一键复现见 `scripts/run-openclaw-e2e.sh`（本机实测 PASS：pose.x 1→3）。
+
+#### 路径 B · 打包分发（自包含 tarball / ClawHub）
+
+先打包：
+
+```bash
+( cd platform/services/gateway-adapter/dist && npm pack )   # → irobot-gateway-adapter-0.1.0.tgz
+```
+
+- **B1 · 本地 tarball 安装** — ✅ 本机已验证：
+  ```bash
+  openclaw plugins install ./irobot-gateway-adapter-0.1.0.tgz --force
+  ```
+  直接解压进 `<state>/extensions/`，不走托管 npm；配置后 `Status: loaded`。适合内网/离线分发。
+
+- **B2 · ClawHub 发布安装**（OpenClaw 文档的受信分发路径）：
+  ```bash
+  clawhub package publish your-org/irobot-gateway-adapter --dry-run
+  clawhub package publish your-org/irobot-gateway-adapter
+  openclaw plugins install clawhub:your-org/irobot-gateway-adapter
+  ```
+  bundle 零运行时依赖，ClawHub/`npm-pack:` 安装无需拉取我们的依赖。
+  > 注意：`npm-pack:` 与托管 npm 路径在**本仓库的源码 checkout 版 openclaw** 下会因其
+  > pnpm 风格 override（`werift-ice>ip`）泄漏进 npm 而报 `EINVALIDTAGNAME`——这是源码树环境
+  > 产物，非插件缺陷。正常安装版（npm 发布）OpenClaw 上 B2 按文档正常工作。
+
+#### 安装后配置（两条路径通用）
+
+在 `openclaw.json`（生产用 `~/.openclaw`；测试用隔离 `OPENCLAW_STATE_DIR`，勿动操作员配置）：
+
+```json
+{
+  "tools": { "allow": ["propose_action"] },
+  "plugins": {
+    "entries": {
+      "irobot-gateway-adapter": {
+        "enabled": true,
+        "config": { "orchestratorUrl": "http://<robot-sim-host>:8899" }
+      }
+    }
+  }
+}
+```
+
+随后在任一渠道对 OpenClaw 说“前进两米”，模型即调用 `propose_action` → robot-sim → 机器人执行。
+生产环境把模型换成带 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` 的真 provider，链路不变。
+
 ### 合规主机 runbook（完成真连接）
 
 ```bash
