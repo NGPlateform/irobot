@@ -8,6 +8,7 @@
     "dev": "tsx server/main.ts",
     "start": "tsx server/main.ts",
     "build:web3d": "node build-web3d.mjs",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
   "dependencies": {
@@ -19,6 +20,7 @@
   },
   "devDependencies": {
     "@irobot/gateway-adapter": "workspace:*",
+    "@types/node": "26.1.2",
     "esbuild": "^0.28.1",
     "tsx": "^4.19.0"
   }

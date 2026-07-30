@@ -23,14 +23,14 @@ export interface LedgerEntry {
   idempotencyKey: string;
   capabilityId: string;
   finalState: ActionState;
-  reason?: string;
-  leaseEpoch?: number;
-  expectedStateVersion?: number;
-  deduplicated?: boolean;
+  reason?: string | undefined;
+  leaseEpoch?: number | undefined;
+  expectedStateVersion?: number | undefined;
+  deduplicated?: boolean | undefined;
   /** 决策来源：orchestrator（TS 慢环）或 edge（Rust 权威准入）。 */
-  source?: "orchestrator" | "edge";
+  source?: "orchestrator" | "edge" | undefined;
   /** 设备 id（舰队多机时区分）。 */
-  deviceId?: string;
+  deviceId?: string | undefined;
   at: string;
 }
 

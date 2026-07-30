@@ -13,8 +13,8 @@ export interface EdgeAdmitReq {
   capabilityId: string;
   safetyClass: string;
   concurrencyKey: string;
-  deadlineMs?: number;
-  leaseEpoch?: number;
+  deadlineMs?: number | undefined;
+  leaseEpoch?: number | undefined;
 }
 
 export type EdgeDecision =

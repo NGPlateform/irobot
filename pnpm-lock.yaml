@@ -36,6 +36,9 @@ importers:
       '@irobot/gateway-adapter':
         specifier: workspace:*
         version: link:../../platform/services/gateway-adapter
+      '@types/node':
+        specifier: 26.1.2
+        version: 26.1.2
       esbuild:
         specifier: ^0.28.1
         version: 0.28.1
