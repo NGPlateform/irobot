@@ -15,6 +15,7 @@ import {
 } from "@irobot/policy-contract";
 import { getCapability } from "./capabilities.js";
 import type { SimRobot } from "./sim-robot.js";
+import { MemoryLedgerStore, type LedgerStore, type LedgerEntry } from "./ledger-store.js";
 
 export interface Proposal {
   capabilityId: string;
@@ -27,19 +28,6 @@ export interface DecisionMeta {
   deadline?: string;
   leaseEpoch?: number;
   expectedStateVersion?: number;
-}
-
-/** Action Ledger 条目：每个命令一生一条终态审计（安全不变量：每次动作可追踪）。 */
-export interface LedgerEntry {
-  commandId: string;
-  idempotencyKey: string;
-  capabilityId: string;
-  finalState: ActionState;
-  reason?: string;
-  leaseEpoch?: number;
-  expectedStateVersion?: number;
-  deduplicated?: boolean;
-  at: string;
 }
 
 const nowIso = () => new Date().toISOString();
@@ -77,12 +65,8 @@ const APPROVAL_TIMEOUT_MS = Number(process.env.IROBOT_APPROVAL_TIMEOUT_MS ?? 300
 
 export class Orchestrator {
   private leaseEpoch = 1;
-  // 幂等结果缓存：idempotencyKey → 终态事件（重试重放，不二次执行，安全不变量 §4.1#6）。
-  private readonly idempotency = new Map<string, ActionEvent>();
   // 每设备已见的最新租约世代（fencing，安全不变量 §9.2：旧 epoch 一律拒绝）。
   private deviceLeaseEpoch = 0;
-  // Action Ledger：全链路审计（G1：全链路审计可查询）。demo 内存版，SQLite 持久化为后续。
-  private readonly actionLedger: LedgerEntry[] = [];
   private readonly pendingApprovals = new Map<
     string,
     { resolve: (d: ApprovalDecision) => void; timer: ReturnType<typeof setTimeout> }
@@ -91,6 +75,7 @@ export class Orchestrator {
   constructor(
     private robot: SimRobot,
     private approvalTimeoutMs = APPROVAL_TIMEOUT_MS,
+    private store: LedgerStore = new MemoryLedgerStore(),
   ) {}
 
   cancelActive(): boolean {
@@ -222,12 +207,11 @@ export class Orchestrator {
 
   /** 只读审计访问（G1：全链路审计可查询）。 */
   ledger(): readonly LedgerEntry[] {
-    return this.actionLedger;
+    return this.store.all();
   }
 
   private appendLedger(e: LedgerEntry): void {
-    this.actionLedger.push(e);
-    if (this.actionLedger.length > 1000) this.actionLedger.shift(); // 内存版有界
+    this.store.append(e);
   }
 
   /**
@@ -240,7 +224,7 @@ export class Orchestrator {
     emit: (ev: ActionEvent) => void,
     meta: DecisionMeta,
   ): Promise<ActionEvent> {
-    const cached = this.idempotency.get(meta.idempotencyKey);
+    const cached = this.store.getIdempotent(meta.idempotencyKey);
     if (cached && isTerminal(cached.state ?? "SUCCEEDED")) {
       // 重放：不进状态机、不触达执行器。
       emit({ commandId, kind: "state_changed", state: "PROPOSED", seq: 0, at: nowIso(), payload: { deduplicated: true } });
@@ -266,7 +250,7 @@ export class Orchestrator {
 
     const final = await this.decideCore(commandId, proposal, emit, meta);
     // 仅缓存"已实际决策"的终态（重放事件不会走到这里）。
-    this.idempotency.set(meta.idempotencyKey, final);
+    this.store.putIdempotent(meta.idempotencyKey, final);
     this.appendLedger({
       commandId,
       idempotencyKey: meta.idempotencyKey,
