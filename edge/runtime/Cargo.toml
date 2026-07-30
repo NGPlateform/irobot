@@ -1,0 +1,18 @@
+[package]
+name = "irobot-edge-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "iRobot Edge Runtime（TurtleBot 4 / ROS 2 Jazzy）核心安全逻辑：动作状态机、安全监督、租约/幂等/并发守卫。零依赖，可离线 cargo test。"
+license = "MIT"
+
+# 核心逻辑零依赖，保证离线可编译可测。
+# ROS 2 绑定（rclrs）与 wire 序列化（serde）留待 feature，需 ROS 2 环境与网络。
+[dependencies]
+
+[features]
+default = []
+# ros2 = ["dep:rclrs"]   # 后续：接 Nav2 / irobot_create_msgs（需 colcon + ROS 2 Jazzy）
+
+[lib]
+name = "irobot_edge_runtime"
+path = "src/lib.rs"

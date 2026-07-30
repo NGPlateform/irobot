@@ -1,0 +1,21 @@
+# robot.navigation.navigate_relative —— 沿当前朝向相对移动（S2_GUARDED）。
+# Edge 内部映射为 Nav2 NavigateToPose（相对目标 pose）。distance_m 负值为后退。
+# max_speed_mps 上限受 TurtleBot 4 平台约束（≤ ~0.31 m/s，见 ADR-012）。
+
+# ---- Goal ----
+float64 distance_m
+float64 max_speed_mps 0.3
+---
+# ---- Result ----
+uint8 OUTCOME_SUCCEEDED = 0
+uint8 OUTCOME_FAILED = 1
+uint8 OUTCOME_CANCELLED = 2
+uint8 outcome
+float64 distance_travelled_m
+geometry_msgs/Pose final_pose
+string error
+---
+# ---- Feedback ----
+float64 progress            # 0.0 .. 1.0
+geometry_msgs/Point current_position
+float32 battery_percent

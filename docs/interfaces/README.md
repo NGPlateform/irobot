@@ -9,7 +9,7 @@
 | 3 | Action Event 与状态机 | v0.1 | ✅ 已冻结 | `platform/packages/action-protocol` |
 | 4 | Orchestrator API | v0.1 | 🟡 部分（幂等去重 / Action Ledger / deadline+租约 fencing 已实现于 robot-sim orchestrator，含测试；持久化待 SQLite） | `apps/robot-sim/server/orchestrator.ts` |
 | 5 | Edge Transport | v0.1 | 🚧 待定义（Phase 1） | `edge/runtime` |
-| 6 | ROS 2 Action 接口 | v0.1 | 🚧 待定义（Phase 1） | `edge/ros2_ws/src/irobot_interfaces` |
+| 6 | ROS 2 Action 接口 | v0.1 | 🟡 已定义（TB4/Jazzy：NavigateRelative/NavigateToStation/ReturnToDock + RobotStatus；rclrs 桥接待 ROS 2 环境） | `edge/ros2_ws/src/irobot_interfaces` |
 | 7 | Approval API | v0.1 | ⬜ 未开始（Phase 3） | `platform/services/gateway-adapter` |
 | 8 | Device State / Digital Twin API | v0.1 | ⬜ 未开始（Phase 1） | `platform/services/device-registry` |
 | 9 | Trajectory Schema | v0.1 | ⬜ 未开始（Phase 5） | `learning/trajectory` |

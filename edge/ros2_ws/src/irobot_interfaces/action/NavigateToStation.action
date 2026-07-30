@@ -1,0 +1,18 @@
+# robot.navigation.navigate_to_station —— 导航到预定义站点（S2_GUARDED）。
+# 站点名映射到地图上的预设 pose；Edge 内部走 Nav2 NavigateToPose。
+
+# ---- Goal ----
+string station
+---
+# ---- Result ----
+uint8 OUTCOME_SUCCEEDED = 0
+uint8 OUTCOME_FAILED = 1
+uint8 OUTCOME_CANCELLED = 2
+uint8 outcome
+bool arrived
+geometry_msgs/Pose final_pose
+string error
+---
+# ---- Feedback ----
+float64 progress            # 0.0 .. 1.0
+float64 distance_remaining_m

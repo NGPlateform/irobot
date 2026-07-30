@@ -713,10 +713,10 @@ MVP 阶段刻意压到两种语言，避免 6～8 人团队被三语言集成拖
 
 ## 17. 待决策问题
 
-- 首个目标硬件和 ROS 2 发行版。
+- ~~首个目标硬件和 ROS 2 发行版。~~ **已决（ADR-012）：TurtleBot 4 + ROS 2 Jazzy。**
 - 首个演示场景及动作安全等级。
-- Edge Runtime 使用 C++ 还是 Rust。
-- OpenClaw 采用插件集成、Node 扩展还是窄 fork。
+- ~~Edge Runtime 使用 C++ 还是 Rust。~~ **已决（ADR-010）：Rust。**
+- ~~OpenClaw 采用插件集成、Node 扩展还是窄 fork。~~ **已决（ADR-003 + Spike 实跑）：外部 Tool 插件。**
 - Gateway 与 Edge 的具体传输协议及序列化格式。
 - 首期是否要求完全离线语音对话。
 - 产品面向家庭、工业还是公共服务场景。

@@ -19,5 +19,6 @@
 | ADR-009 | MVP 模块化单体，规模化后再引入持久消息总线 | Accepted | 架构设计 §16 |
 | ADR-010 | MVP 双语言栈：慢环 TypeScript，快环 Rust | Accepted | [0010](0010-two-language-stack.md) |
 | ADR-011 | 边缘上下文压缩为硬约束；云/边共用同一动作协议 | Accepted | [0011](0011-edge-context-compaction.md) |
+| ADR-012 | 首个硬件 TurtleBot 4，ROS 2 Jazzy | Accepted | [0012](0012-first-hardware-turtlebot4-jazzy.md) |
 
 ADR-001～009 的背景与后果详见架构设计 §16 及相关章节；此处只维护状态索引，避免重复。新决策一律新建独立文件。

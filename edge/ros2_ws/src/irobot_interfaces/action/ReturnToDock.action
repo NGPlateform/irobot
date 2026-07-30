@@ -1,0 +1,17 @@
+# robot.navigation.return_to_dock —— 返回充电坞（S2_GUARDED）。
+# Edge 内部：Nav2 导航到坞前 + irobot_create_msgs/action/Dock 完成对接。
+
+# ---- Goal ----
+# （无参数）
+---
+# ---- Result ----
+uint8 OUTCOME_SUCCEEDED = 0
+uint8 OUTCOME_FAILED = 1
+uint8 OUTCOME_CANCELLED = 2
+uint8 outcome
+bool docked
+string error
+---
+# ---- Feedback ----
+float64 progress            # 0.0 .. 1.0
+bool dock_contacts_detected
