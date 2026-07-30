@@ -47,7 +47,7 @@ describe("SqliteLedgerStore：重启不丢（§8.2 重启不丢已接受动作�
 
     const s1 = new SqliteLedgerStore(path);
     s1.append(entry({ commandId: "cmd_A", idempotencyKey: "kA" }));
-    s1.append(entry({ commandId: "cmd_B", idempotencyKey: "kB", deduplicated: true, reason: "deduplicated" }));
+    s1.append(entry({ commandId: "cmd_B", idempotencyKey: "kB", deduplicated: true, reason: "deduplicated", source: "edge" }));
     s1.putIdempotent("kA", event());
     s1.close(); // 模拟进程退出
 
@@ -55,8 +55,10 @@ describe("SqliteLedgerStore：重启不丢（§8.2 重启不丢已接受动作�
     const all = s2.all();
     expect(all).toHaveLength(2);
     expect(all[0]!.commandId).toBe("cmd_A");
+    expect(all[0]!.source).toBe("orchestrator"); // 默认
     expect(all[1]!.deduplicated).toBe(true);
     expect(all[1]!.reason).toBe("deduplicated");
+    expect(all[1]!.source).toBe("edge"); // Edge 决策来源持久
     // 幂等缓存跨重启存活 → 重启后重复命令仍会去重
     expect(s2.getIdempotent("kA")?.state).toBe("SUCCEEDED");
     expect(s2.getIdempotent("kA")?.payload.distanceTravelledM).toBe(2);

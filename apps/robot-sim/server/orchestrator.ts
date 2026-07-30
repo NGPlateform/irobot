@@ -409,7 +409,26 @@ export class Orchestrator {
       leaseEpoch: meta.leaseEpoch,
     };
     if (this.edge) {
+      // 先把本地实时状态推给 Edge，供其对 S2/S3 做安全重校验（读本地状态重判）。
+      const snap = this.robot.stateSnapshot();
+      await this.edge.setState(
+        Boolean(snap["safety.estop"]),
+        Boolean(snap["localization.healthy"]),
+        Number(snap["battery.percent"]),
+      );
       const adm = await this.edge.admit(edgeReq, Date.now());
+      // 把 Rust Edge 的独立准入决策落库（source=edge，SQLite 持久、可经 /edge-journal 查）。
+      this.store.append({
+        commandId,
+        idempotencyKey: meta.idempotencyKey,
+        capabilityId: proposal.capabilityId,
+        finalState: adm.kind === "rejected" ? "REJECTED" : "ACCEPTED",
+        reason: adm.kind === "rejected" ? adm.reason : adm.kind === "deduplicated" ? "deduplicated" : undefined,
+        deduplicated: adm.kind === "deduplicated",
+        leaseEpoch: meta.leaseEpoch,
+        source: "edge",
+        at: nowIso(),
+      });
       if (adm.kind === "rejected") {
         return to("REJECTED", { reason: `edge: ${adm.reason}` });
       }

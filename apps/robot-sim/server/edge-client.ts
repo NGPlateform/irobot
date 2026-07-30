@@ -119,6 +119,12 @@ export class EdgeClient {
     }
   }
 
+  /** 推送本地状态快照给 Edge（供 S2/S3 安全重校验读本地实时状态）。 */
+  async setState(estop: boolean, locHealthy: boolean, battery: number): Promise<void> {
+    const line = ["STATE", estop ? "1" : "0", locHealthy ? "1" : "0", String(battery)].join("\t");
+    await this.send(line);
+  }
+
   async complete(
     req: EdgeAdmitReq,
     finalState: string,

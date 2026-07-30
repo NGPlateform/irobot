@@ -53,6 +53,12 @@ export function createSimServer(session: Session) {
       return;
     }
 
+    if (method === "GET" && url === "/edge-journal") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(session.ledger().filter((e) => e.source === "edge"), null, 2));
+      return;
+    }
+
     if (method === "GET" && url === "/events") {
       res.writeHead(200, {
         "content-type": "text/event-stream",

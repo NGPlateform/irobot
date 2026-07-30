@@ -84,8 +84,28 @@ export function createRobotScene(canvas) {
 
   const camera = new THREE.PerspectiveCamera(45, 1, 0.1, 100);
   const camTarget = new THREE.Vector3(W / 2, 0, H / 2);
-  camera.position.set(W / 2, 9.5, H + 4.5);
-  camera.lookAt(camTarget);
+  // 轨道相机（球坐标）：鼠标拖拽转动，滚轮缩放。
+  const orbit = { radius: 12, theta: 0, phi: 0.95 }; // theta 方位角，phi 仰角
+  function applyCamera() {
+    const r = orbit.radius;
+    camera.position.set(
+      camTarget.x + r * Math.sin(orbit.phi) * Math.sin(orbit.theta),
+      camTarget.y + r * Math.cos(orbit.phi),
+      camTarget.z + r * Math.sin(orbit.phi) * Math.cos(orbit.theta),
+    );
+    camera.lookAt(camTarget);
+  }
+  let dragging = false, lastX = 0, lastY = 0;
+  canvas.addEventListener("pointerdown", (e) => { dragging = true; lastX = e.clientX; lastY = e.clientY; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener("pointerup", (e) => { dragging = false; canvas.releasePointerCapture?.(e.pointerId); });
+  canvas.addEventListener("pointermove", (e) => {
+    if (!dragging) return;
+    orbit.theta -= (e.clientX - lastX) * 0.006;
+    orbit.phi = Math.min(1.45, Math.max(0.15, orbit.phi - (e.clientY - lastY) * 0.005));
+    lastX = e.clientX; lastY = e.clientY;
+  });
+  canvas.addEventListener("wheel", (e) => { e.preventDefault(); orbit.radius = Math.min(24, Math.max(4, orbit.radius + e.deltaY * 0.01)); }, { passive: false });
+  applyCamera();
 
   scene.add(new THREE.HemisphereLight(0xbcd4e6, 0x20262e, 0.9));
   const dir = new THREE.DirectionalLight(0xffffff, 1.1);
@@ -121,6 +141,51 @@ export function createRobotScene(canvas) {
   const robot = buildTurtleBot4();
   scene.add(robot);
 
+  // 激光雷达点云：从机器人向四周打射线，命中房间墙/危险区。
+  const RAYS = 120;
+  const lidarPos = new Float32Array(RAYS * 3);
+  const lidarGeom = new THREE.BufferGeometry();
+  lidarGeom.setAttribute("position", new THREE.BufferAttribute(lidarPos, 3));
+  const lidar = new THREE.Points(
+    lidarGeom,
+    new THREE.PointsMaterial({ color: 0x6fe3c8, size: 0.07, sizeAttenuation: true, transparent: true, opacity: 0.85 }),
+  );
+  scene.add(lidar);
+  function rayToWall(px, pz, dx, dz) {
+    let t = Infinity;
+    if (dx > 1e-6) t = Math.min(t, (W - px) / dx);
+    if (dx < -1e-6) t = Math.min(t, -px / dx);
+    if (dz > 1e-6) t = Math.min(t, (H - pz) / dz);
+    if (dz < -1e-6) t = Math.min(t, -pz / dz);
+    return t;
+  }
+  function rayToAABB(px, pz, dx, dz, minx, minz, maxx, maxz) {
+    let tmin = -Infinity, tmax = Infinity;
+    const slab = (p, d, lo, hi) => {
+      if (Math.abs(d) < 1e-9) return p >= lo && p <= hi;
+      let t1 = (lo - p) / d, t2 = (hi - p) / d;
+      if (t1 > t2) { const s = t1; t1 = t2; t2 = s; }
+      tmin = Math.max(tmin, t1); tmax = Math.min(tmax, t2);
+      return true;
+    };
+    if (!slab(px, dx, minx, maxx) || !slab(pz, dz, minz, maxz)) return Infinity;
+    if (tmax < Math.max(tmin, 0)) return Infinity;
+    return tmin > 0 ? tmin : Infinity;
+  }
+  let dangerAABB = null;
+  function updateLidar(px, pz) {
+    for (let i = 0; i < RAYS; i++) {
+      const a = (i / RAYS) * Math.PI * 2;
+      const dx = Math.cos(a), dz = Math.sin(a);
+      let t = rayToWall(px, pz, dx, dz);
+      if (dangerAABB) t = Math.min(t, rayToAABB(px, pz, dx, dz, dangerAABB[0], dangerAABB[1], dangerAABB[2], dangerAABB[3]));
+      const j = i * 3;
+      lidarPos[j] = px + dx * t; lidarPos[j + 1] = 0.12; lidarPos[j + 2] = pz + dz * t;
+    }
+    lidarGeom.attributes.position.needsUpdate = true;
+    lidarGeom.computeBoundingSphere();
+  }
+
   let world = null;
   const built = { stations: false };
 
@@ -151,6 +216,7 @@ export function createRobotScene(canvas) {
       );
       const p = w2v(rz.x, rz.y); box.position.set(p.x, 0.25, p.z); dynamic.add(box);
       const lb = makeLabel("⚠ " + rz.label, "#e5645b"); lb.position.set(p.x, 0.7, p.z); dynamic.add(lb);
+      dangerAABB = [rz.x - 1, rz.y - 1, rz.x + 1, rz.y + 1]; // minx,minz,maxx,maxz（雷达会命中）
     }
     built.stations = true;
   }
@@ -191,6 +257,7 @@ export function createRobotScene(canvas) {
     // 后端 heading：绕世界 x（atan2(dy,dx)）；three 里绕 y 轴，z=worldY 需取负。
     robot.rotation.y = -t.pose.heading;
     pushTrail(p);
+    updateLidar(p.x, p.z);
     const ring = robot.userData.progress;
     ring.visible = executing;
     if (executing) {
@@ -211,15 +278,9 @@ export function createRobotScene(canvas) {
     }
   }
 
-  let angle = 0;
   function loop() {
     resize();
-    // 轻微环绕，突出 3D
-    angle += 0.0008;
-    const r = H + 4.5;
-    camera.position.x = W / 2 + Math.sin(angle) * 1.2;
-    camera.position.z = H / 2 + r;
-    camera.lookAt(camTarget);
+    applyCamera();
     renderer.render(scene, camera);
     requestAnimationFrame(loop);
   }

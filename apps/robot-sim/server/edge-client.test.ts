@@ -99,4 +99,19 @@ describe.skipIf(!hasDaemon)("EdgeClient ↔ 真实 Rust edge-daemon", () => {
     expect(dedup.kind).toBe("deduplicated");
     c.stop();
   });
+
+  it("STATE 推送后，Edge 对 S2 做急停/定位安全重校验", async () => {
+    const c = new EdgeClient(DAEMON);
+    c.start();
+    await c.setState(true, true, 80); // 急停
+    const e = await c.admit(req({ commandId: "e", idempotencyKey: "ke" }), 100);
+    expect(e.kind).toBe("rejected");
+    expect(e.kind === "rejected" && e.reason).toContain("estop");
+    await c.setState(false, false, 80); // 定位失效
+    const l = await c.admit(req({ commandId: "l", idempotencyKey: "kl" }), 100);
+    expect(l.kind === "rejected" && l.reason).toContain("localization");
+    await c.setState(false, true, 80); // 恢复
+    expect((await c.admit(req({ commandId: "ok", idempotencyKey: "kok" }), 100)).kind).toBe("accepted");
+    c.stop();
+  });
 });

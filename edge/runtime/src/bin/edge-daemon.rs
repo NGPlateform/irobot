@@ -28,6 +28,10 @@ fn main() {
                 guard.complete(&req, final_state, now_ms);
                 format!("OK\t{}", req.command_id)
             }
+            Some(Request::SetState { estop, loc_healthy, battery }) => {
+                guard.set_state(estop, loc_healthy, battery);
+                "OK\t-".to_string()
+            }
             None => "REJECT\t-\tmalformed request".to_string(),
         };
         if writeln!(out, "{reply}").is_err() || out.flush().is_err() {

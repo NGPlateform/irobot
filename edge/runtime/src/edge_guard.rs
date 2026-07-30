@@ -45,17 +45,41 @@ pub struct JournalEntry {
     pub at_ms: u64,
 }
 
-#[derive(Default)]
 pub struct EdgeGuard {
     idempotency: HashMap<String, ActionState>,
     device_lease_epoch: u64,
     busy_concurrency: HashSet<String>,
     journal: Vec<JournalEntry>,
+    // Edge 持有的本地实时状态（安全不变量 §4.1：安全关键条件由 Edge 读本地状态重判）。
+    estop: bool,
+    loc_healthy: bool,
+    battery: f64,
+}
+
+impl Default for EdgeGuard {
+    fn default() -> Self {
+        Self {
+            idempotency: HashMap::new(),
+            device_lease_epoch: 0,
+            busy_concurrency: HashSet::new(),
+            journal: Vec::new(),
+            estop: false,
+            loc_healthy: true,
+            battery: 100.0,
+        }
+    }
 }
 
 impl EdgeGuard {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// 更新 Edge 的本地状态快照（由设备遥测驱动）。
+    pub fn set_state(&mut self, estop: bool, loc_healthy: bool, battery: f64) {
+        self.estop = estop;
+        self.loc_healthy = loc_healthy;
+        self.battery = battery;
     }
 
     pub fn journal(&self) -> &[JournalEntry] {
@@ -79,6 +103,16 @@ impl EdgeGuard {
         // S4 或不可提案等级：从入口拒绝。
         if !req.safety_class.agent_may_propose() {
             return self.reject(req, "safety class forbids agent proposal", now_ms);
+        }
+
+        // Edge 安全重校验：S2/S3 动作读本地实时状态，急停/定位失效则拒（安全不变量 §4.1）。
+        if req.safety_class.requires_edge_revalidation() {
+            if self.estop {
+                return self.reject(req, "edge revalidation: estop engaged", now_ms);
+            }
+            if !self.loc_healthy {
+                return self.reject(req, "edge revalidation: localization unhealthy", now_ms);
+            }
         }
 
         // 期限：过期不执行（§8.2）。
@@ -226,6 +260,20 @@ mod tests {
         // 释放后同 key 可再次通过
         g.complete(&a, ActionState::Cancelled, 5);
         assert_eq!(g.admit(&req("d"), 0), Admission::Accepted);
+    }
+
+    #[test]
+    fn edge_revalidation_estop_and_localization() {
+        let mut g = EdgeGuard::new();
+        g.set_state(true, true, 80.0); // 急停
+        assert!(matches!(g.admit(&req("e"), 0), Admission::Rejected { .. }));
+        g.set_state(false, false, 80.0); // 定位失效
+        match g.admit(&req("l"), 0) {
+            Admission::Rejected { reason } => assert!(reason.contains("localization")),
+            other => panic!("expected reject, got {other:?}"),
+        }
+        g.set_state(false, true, 80.0); // 恢复
+        assert_eq!(g.admit(&req("ok"), 0), Admission::Accepted);
     }
 
     #[test]

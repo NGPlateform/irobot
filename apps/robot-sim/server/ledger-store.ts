@@ -27,6 +27,8 @@ export interface LedgerEntry {
   leaseEpoch?: number;
   expectedStateVersion?: number;
   deduplicated?: boolean;
+  /** 决策来源：orchestrator（TS 慢环）或 edge（Rust 权威准入）。 */
+  source?: "orchestrator" | "edge";
   at: string;
 }
 
@@ -86,9 +88,16 @@ export class SqliteLedgerStore implements LedgerStore {
         lease_epoch INTEGER,
         expected_state_version INTEGER,
         deduplicated INTEGER NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'orchestrator',
         at TEXT NOT NULL
       );
     `);
+    // 兼容旧库：若无 source 列则补上（新库已含）。
+    try {
+      this.db.exec(`ALTER TABLE action_ledger ADD COLUMN source TEXT NOT NULL DEFAULT 'orchestrator'`);
+    } catch {
+      /* 列已存在 */
+    }
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS idempotency (
         key TEXT PRIMARY KEY,
@@ -102,8 +111,8 @@ export class SqliteLedgerStore implements LedgerStore {
     this.db
       .prepare(
         `INSERT INTO action_ledger
-         (command_id, idempotency_key, capability_id, final_state, reason, lease_epoch, expected_state_version, deduplicated, at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (command_id, idempotency_key, capability_id, final_state, reason, lease_epoch, expected_state_version, deduplicated, source, at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         e.commandId,
@@ -114,6 +123,7 @@ export class SqliteLedgerStore implements LedgerStore {
         e.leaseEpoch ?? null,
         e.expectedStateVersion ?? null,
         e.deduplicated ? 1 : 0,
+        e.source ?? "orchestrator",
         e.at,
       );
   }
@@ -132,6 +142,7 @@ export class SqliteLedgerStore implements LedgerStore {
       expectedStateVersion:
         r.expected_state_version == null ? undefined : Number(r.expected_state_version),
       deduplicated: Number(r.deduplicated) === 1,
+      source: (r.source == null ? "orchestrator" : String(r.source)) as "orchestrator" | "edge",
       at: String(r.at),
     }));
   }

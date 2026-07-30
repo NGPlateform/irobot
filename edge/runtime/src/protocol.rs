@@ -16,6 +16,7 @@ use crate::safety::SafetyClass;
 pub enum Request {
     Admit { req: ActionRequest, now_ms: u64 },
     Complete { req: ActionRequest, final_state: ActionState, now_ms: u64 },
+    SetState { estop: bool, loc_healthy: bool, battery: f64 },
 }
 
 fn opt_u64(s: &str) -> Option<u64> {
@@ -39,6 +40,11 @@ pub fn parse_request(line: &str) -> Option<Request> {
             };
             Some(Request::Admit { req, now_ms: f[8].parse().ok()? })
         }
+        "STATE" if f.len() == 4 => Some(Request::SetState {
+            estop: f[1] == "1",
+            loc_healthy: f[2] == "1",
+            battery: f[3].parse().ok()?,
+        }),
         "COMPLETE" if f.len() == 8 => {
             let req = ActionRequest {
                 command_id: f[1].to_string(),
@@ -95,6 +101,18 @@ mod tests {
             Request::Admit { req, .. } => {
                 assert_eq!(req.deadline_ms, None);
                 assert_eq!(req.lease_epoch, None);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parse_state() {
+        match parse_request("STATE\t1\t0\t42.5").unwrap() {
+            Request::SetState { estop, loc_healthy, battery } => {
+                assert!(estop);
+                assert!(!loc_healthy);
+                assert_eq!(battery, 42.5);
             }
             _ => panic!(),
         }
