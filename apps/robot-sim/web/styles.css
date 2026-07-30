@@ -167,3 +167,47 @@ body {
   color: #06210f; background: var(--ok); border-color: var(--ok); font-weight: 700;
 }
 .ap-actions .approve:hover { filter: brightness(1.08); }
+
+/* —— 双显示模式：分段切换 + 数字人 —— */
+.hidden { display: none !important; }
+.stagecol { display: flex; flex-direction: column; min-width: 0; }
+.modebar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.seg {
+  display: inline-flex; gap: 3px; padding: 3px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+}
+.seg-btn {
+  border: 1px solid transparent; background: transparent; color: var(--ink-soft);
+  font-family: var(--sans); font-size: 13px; padding: 7px 14px; border-radius: 7px; cursor: pointer;
+}
+.seg-btn:hover { color: var(--ink); }
+.seg-btn.active { background: #0d2830; color: var(--flow); border-color: #16414a; }
+
+#dh-face {
+  width: 100%; height: 40vh; min-height: 280px; display: block;
+  border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line);
+}
+.dh-hud { grid-template-columns: repeat(3, 1fr); }
+
+.armbars { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 4px; }
+.armbar { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--ink-soft); }
+.armbar .bar {
+  flex: 1; height: 8px; border-radius: 999px; overflow: hidden;
+  background: var(--panel-2); border: 1px solid var(--line);
+}
+.armbar .bar i { display: block; height: 100%; width: 0%; background: var(--flow); transition: width .2s ease; }
+
+.arm-btns, .quick { display: grid; gap: 8px; margin-top: 4px; }
+.arm-btns { grid-template-columns: repeat(4, 1fr); }
+.quick { grid-template-columns: repeat(4, 1fr); }
+
+.dh-switch { display: inline-flex; gap: 6px; margin-left: auto; }
+.dh-switch button {
+  font-family: var(--mono); font-size: 11px; padding: 3px 9px; border-radius: 999px;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-soft); cursor: pointer;
+}
+.dh-switch button.active { color: var(--flow); border-color: #16414a; background: #0d2830; }
+
+@media (max-width: 940px) {
+  .quick, .arm-btns { grid-template-columns: repeat(2, 1fr); }
+}
