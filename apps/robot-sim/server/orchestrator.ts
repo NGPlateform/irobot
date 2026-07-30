@@ -67,6 +67,8 @@ export class Orchestrator {
   private leaseEpoch = 1;
   // 每设备已见的最新租约世代（fencing，安全不变量 §9.2：旧 epoch 一律拒绝）。
   private deviceLeaseEpoch = 0;
+  // 正在占用的 concurrencyKey（§8.2：同一 concurrencyKey 不允许两个写动作同时执行）。
+  private readonly busyConcurrency = new Set<string>();
   private readonly pendingApprovals = new Map<
     string,
     { resolve: (d: ApprovalDecision) => void; timer: ReturnType<typeof setTimeout> }
@@ -386,21 +388,33 @@ export class Orchestrator {
       // approve → 落到下方 ACCEPTED + 执行
     }
 
+    // 并发互斥：同一 concurrencyKey 已有写动作在执行则拒绝（§8.2）。不同 key（如 arm）可并行。
+    // 此处已处于 VALIDATING（前置条件已跑），故直接转 REJECTED，不再走 reject() 的 VALIDATING。
+    const ckey = manifest.concurrencyKey;
+    if (this.busyConcurrency.has(ckey)) {
+      return to("REJECTED", { reason: `资源忙：concurrencyKey ${ckey} 正在执行其它写动作` });
+    }
+
     // 构造并校验 Envelope（审计留痕，同时证明与 action-protocol 一致）。
     this.buildEnvelope(proposal, safetyClass, commandId);
 
     to("ACCEPTED");
+    this.busyConcurrency.add(ckey);
 
     // 交给仿真机器人执行；它发出 EXECUTING/feedback/result。用 forward 守卫其状态转移。
     const forward = (ev: ActionEvent) => {
       if (ev.state) current = applyTransition(current, ev.state);
       emit({ ...ev, commandId });
     };
-    return this.robot.execute(
-      { commandId, capabilityId: proposal.capabilityId } as ActionEnvelope,
-      resolved.goal,
-      resolved.speed,
-      forward,
-    );
+    try {
+      return await this.robot.execute(
+        { commandId, capabilityId: proposal.capabilityId } as ActionEnvelope,
+        resolved.goal,
+        resolved.speed,
+        forward,
+      );
+    } finally {
+      this.busyConcurrency.delete(ckey); // 终态（成功/失败/取消）后释放
+    }
   }
 }

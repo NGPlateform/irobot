@@ -74,6 +74,40 @@ describe("Orchestrator 安全不变量（开发计划 §8.2）", () => {
     expect(String((stale.payload as { reason: string }).reason)).toContain("旧租约");
   });
 
+  it("concurrencyKey 互斥：同 key 第二个写动作被拒；不同 key(查询)不受阻", async () => {
+    const { robot, orch } = stack();
+    // 动作1：导航到远站点（base_motion），不 await，让它进入执行并占用 key
+    const p1 = orch.propose(
+      { capabilityId: "robot.navigation.navigate_to_station", arguments: { station: "二号站点" } },
+      () => {},
+    );
+    await new Promise((r) => setTimeout(r, 40)); // 等 base_motion 占用
+    // 动作2：同 concurrencyKey(base_motion) → 应被拒
+    const busy = await orch.propose(
+      { capabilityId: "robot.navigation.navigate_relative", arguments: { distanceM: 1 } },
+      () => {},
+    );
+    expect(busy.state).toBe("REJECTED");
+    expect(String((busy.payload as { reason: string }).reason)).toContain("concurrencyKey");
+    // 查询(telemetry key，只读) → 不受 base_motion 占用影响
+    const q = await orch.propose(
+      { capabilityId: "robot.telemetry.query_battery", arguments: {} },
+      () => {},
+    );
+    expect(q.state).toBe("SUCCEEDED");
+    // 取消动作1收尾并确认 key 释放：随后同 key 动作可被接受(进入执行)
+    orch.cancelActive();
+    await p1;
+    const states: string[] = [];
+    const p3 = orch.propose(
+      { capabilityId: "robot.navigation.navigate_relative", arguments: { distanceM: 0.2, maxSpeedMps: 0.6 } },
+      (e) => e.state && states.push(e.state),
+    );
+    await p3;
+    robot.stop();
+    expect(states).toContain("EXECUTING"); // key 已释放，可再次执行
+  });
+
   it("Action Ledger：每个命令落一条终态审计，去重项标记 deduplicated", async () => {
     const { robot, orch } = stack();
     await orch.executeEnvelope(envelope({ idempotencyKey: "led-1" }), () => {});
