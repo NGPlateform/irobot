@@ -16,11 +16,14 @@ const STATIC: Record<string, string> = {
   "/scene3d.bundle.js": "scene3d.bundle.js",
   "/digital-human.js": "digital-human.js",
   "/map2d.js": "map2d.js",
+  "/human-vrm.bundle.js": "human-vrm.bundle.js",
+  "/models/avatar.vrm": "models/avatar.vrm",
 };
 const MIME: Record<string, string> = {
   html: "text/html; charset=utf-8",
   js: "text/javascript; charset=utf-8",
   css: "text/css; charset=utf-8",
+  vrm: "application/octet-stream",
 };
 
 async function readBody(req: IncomingMessage): Promise<string> {

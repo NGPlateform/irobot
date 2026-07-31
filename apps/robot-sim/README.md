@@ -70,6 +70,15 @@ Orchestrator `REJECTED`——安全边界不依赖模型。
   - **全身** — 拟人机器人立身，复用同一张表情头，另反映：**底盘行走**（导航时双腿迈步/前倾，
     由遥测 pose 增量判断）、**机械臂映射**（右臂随 `arm.extension` 抬升前伸、手指随 `gripper` 开合）、
     **说话手势**（左臂在说话时摆动）、躯干**核心状态光**。
+- **🧑 VRM 数字人** — 引入真正的开源数字人引擎 **[@pixiv/three-vrm](https://github.com/pixiv/three-vrm)**
+  作为第 5 种视图：一个 3D **VRM 1.0** 人形，表情由机器人状态驱动（happy/angry/sad/relaxed/neutral）、
+  **口型随说话开合**（`aa` viseme 包络）、自动眨眼与注视、待机头部微动。内置模型**完全离线**加载
+  （`web/models/avatar.vrm`），零网络、零密钥。中文用 Web Speech，口型为"说话开合"近似（非音素级）。
+  引擎经 esbuild 打成 `web/human-vrm.bundle.js`，与 2D/3D/脸部/全身共用同一条 SSE 与控制链路。
+
+  > 内置模型为 VRM 联盟官方参考头像 **Seed-san**（来自 [vrm-c/vrm-specification](https://github.com/vrm-c/vrm-specification)，
+  > 许可 [VRM Public License 1.0](https://vrm.dev/licenses/1.0/)，`avatarPermission=everyone`）。
+  > 可替换为任意 `.vrm`：覆盖 `web/models/avatar.vrm` 即可。
 
 默认模式按舰队规模自动选：`IROBOT_FLEET=1` → 数字人模式；`>1` → 3D 探索模式。手动切换会记入
 `localStorage`（`irobot-view-mode`）并在下次覆盖默认。数字人头像为 Canvas 2D 绘制，零外部模型、

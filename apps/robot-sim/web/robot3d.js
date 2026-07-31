@@ -6,6 +6,17 @@ const map2d = window.IRobotMap2D.createMap($("map2d"));
 const avatar = window.IRobotDigitalHuman
   ? window.IRobotDigitalHuman.createAvatar($("dh-face"))
   : { update() {}, setListening() {}, setThinking() {}, startSpeaking() {}, stopSpeaking() {}, setView() {} };
+const human = window.IRobotHuman
+  ? window.IRobotHuman.createHuman($("vrm-stage"))
+  : { update() {}, setListening() {}, setThinking() {}, startSpeaking() {}, stopSpeaking() {}, resize() {} };
+// 说话/思考/聆听同时驱动 Canvas 数字人（脸部/全身）与 VRM 数字人。
+const talkers = {
+  update: (t, s) => { avatar.update(t, s); human.update(t, s); },
+  setListening: (b) => { avatar.setListening(b); human.setListening(b); },
+  setThinking: (b) => { avatar.setThinking(b); human.setThinking(b); },
+  startSpeaking: () => { avatar.startSpeaking(); human.startSpeaking(); },
+  stopSpeaking: () => { avatar.stopSpeaking(); human.stopSpeaking(); },
+};
 
 // 三个渲染器统一驱动
 const R = {
@@ -27,8 +38,8 @@ const STATE_LABEL = {
 };
 
 // —— 视图：2d / 3d / face / body ——
-const VIEWS = ["2d", "3d", "face", "body"];
-const VIEW_BTN = { "2d": "view-2d", "3d": "view-3d", face: "view-face", body: "view-body" };
+const VIEWS = ["2d", "3d", "face", "body", "human"];
+const VIEW_BTN = { "2d": "view-2d", "3d": "view-3d", face: "view-face", body: "view-body", human: "view-human" };
 let view = "face";
 function applyView(v) {
   if (!VIEWS.includes(v)) v = "face";
@@ -36,9 +47,11 @@ function applyView(v) {
   $("stage-2d").classList.toggle("hidden", v !== "2d");
   $("stage-explore").classList.toggle("hidden", v !== "3d");
   $("stage-dh").classList.toggle("hidden", v !== "face" && v !== "body");
+  $("stage-human").classList.toggle("hidden", v !== "human");
   $("shared-ro").classList.toggle("hidden", v !== "2d" && v !== "3d");
   for (const k of VIEWS) $(VIEW_BTN[k]).classList.toggle("active", k === v);
   if (v === "face" || v === "body") avatar.setView(v);
+  if (v === "human") human.resize(); // 容器由隐藏变可见，需重置渲染尺寸
   try { localStorage.setItem("irobot-view", v); } catch {}
   renderActive();
 }
@@ -90,6 +103,7 @@ function renderActive() {
   updateReadouts();
   updateDhHud(telemetry);
   $("dh-device").textContent = activeDevice ?? "–";
+  const vd = $("vrm-device"); if (vd) vd.textContent = activeDevice ?? "–";
 }
 
 const es = new EventSource("/events");
@@ -103,7 +117,7 @@ es.onmessage = (e) => {
     for (const r of robots) { teleByDevice[r.deviceId] = r.telemetry; R.update(r.deviceId, r.telemetry); }
     R.setActive(activeDevice);
     telemetry = teleByDevice[activeDevice];
-    avatar.update(telemetry, null);
+    talkers.update(telemetry, null);
     buildDeviceSwitcher();
     // 默认视图：手动选择优先；否则单机→脸部、多机→3D 探索。
     let saved = null;
@@ -111,16 +125,16 @@ es.onmessage = (e) => {
     applyView(VIEWS.includes(saved) ? saved : (deviceIds.length > 1 ? "3d" : "face"));
   } else if (msg.kind === "status") {
     $("thinking").classList.toggle("hidden", !msg.busy);
-    avatar.setThinking(!!msg.busy);
+    talkers.setThinking(!!msg.busy);
   } else if (msg.kind === "telemetry") {
     teleByDevice[msg.deviceId] = msg.data;
     R.update(msg.deviceId, msg.data);
-    if (msg.deviceId === activeDevice) { telemetry = msg.data; avatar.update(msg.data, null); renderActive(); }
+    if (msg.deviceId === activeDevice) { telemetry = msg.data; talkers.update(msg.data, null); renderActive(); }
   } else if (msg.kind === "active") {
     activeDevice = msg.deviceId;
     R.setActive(activeDevice);
     telemetry = teleByDevice[activeDevice];
-    avatar.update(telemetry, null);
+    talkers.update(telemetry, null);
     buildDeviceSwitcher();
     renderActive();
   } else if (msg.kind === "transcript") { addMsg(msg.role, msg.text); }
@@ -132,7 +146,7 @@ function onAction(ev, deviceId) {
   R.setState(deviceId, ev.state);
   if (deviceId === activeDevice && ev.state) {
     currentState = ev.state;
-    avatar.update(null, ev.state);
+    talkers.update(null, ev.state);
     renderActive();
   }
   if (ev.state === "PENDING_APPROVAL") showApproval(ev, deviceId);
@@ -148,7 +162,7 @@ function onAction(ev, deviceId) {
   const box = $("actions"); box.appendChild(row); box.scrollTop = box.scrollHeight;
   if (["SUCCEEDED", "FAILED", "CANCELLED", "REJECTED", "EXPIRED"].includes(ev.state)) {
     setTimeout(() => {
-      if (deviceId === activeDevice && currentState === ev.state) { currentState = "IDLE"; avatar.update(null, "IDLE"); renderActive(); }
+      if (deviceId === activeDevice && currentState === ev.state) { currentState = "IDLE"; talkers.update(null, "IDLE"); renderActive(); }
       R.setState(deviceId, "IDLE");
     }, 400);
   }
@@ -208,18 +222,18 @@ if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged 
 function speak(text) {
   if (!("speechSynthesis" in window)) return;
   const u = new SpeechSynthesisUtterance(text); u.lang = "zh-CN"; if (zhVoice) u.voice = zhVoice;
-  u.onstart = () => avatar.startSpeaking();
-  u.onend = () => avatar.stopSpeaking();
-  u.onerror = () => avatar.stopSpeaking();
+  u.onstart = () => talkers.startSpeaking();
+  u.onend = () => talkers.stopSpeaking();
+  u.onerror = () => talkers.stopSpeaking();
   speechSynthesis.speak(u);
 }
 // 口型（视觉）：独立于 TTS 可用性，按文本长度估算时长，保证数字人一定"开口"。
 let speakTimer = null;
 function avatarSpeak(text) {
-  avatar.startSpeaking();
+  talkers.startSpeaking();
   if (speakTimer) clearTimeout(speakTimer);
   const ms = Math.min(6000, 700 + (text ? text.length : 0) * 130);
-  speakTimer = setTimeout(() => avatar.stopSpeaking(), ms);
+  speakTimer = setTimeout(() => talkers.stopSpeaking(), ms);
 }
 
 // —— STT（语音输入）：两种模式 ——
@@ -245,7 +259,7 @@ function paintMic() {
   $("mic-label").textContent = listening
     ? (pushToTalk ? "聆听中…松开空格结束" : (voiceMode === "open" ? "常开聆听中…（点击关闭）" : "聆听中…点按结束"))
     : micIdleLabel();
-  avatar.setListening(listening);
+  talkers.setListening(listening);
 }
 function startRecog(continuous) {
   if (!recog || listening) return;

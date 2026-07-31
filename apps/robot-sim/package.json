@@ -8,6 +8,7 @@
     "dev": "tsx server/main.ts",
     "start": "tsx server/main.ts",
     "build:web3d": "node build-web3d.mjs",
+    "build:human": "node build-human.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
@@ -15,6 +16,7 @@
     "@irobot/action-protocol": "workspace:*",
     "@irobot/capability-schema": "workspace:*",
     "@irobot/policy-contract": "workspace:*",
+    "@pixiv/three-vrm": "^3.5.5",
     "three": "^0.185.1",
     "zod": "^3.24.0"
   },
