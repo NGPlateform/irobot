@@ -3,13 +3,11 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>iRobot 控制台 · 数字人 / 3D 探索</title>
+    <title>iRobot 控制台 · 2D / 3D / 数字人</title>
     <link rel="stylesheet" href="/styles.css" />
     <style>
-      #scene3d { width: 100%; height: 62vh; min-height: 360px; display: block; border-radius: 10px; background: #0e141d; border: 1px solid var(--line); }
+      #scene3d, #map2d { width: 100%; height: 62vh; min-height: 360px; display: block; border-radius: 10px; background: #0e141d; border: 1px solid var(--line); }
       .stage-head .tb { font-family: var(--mono); font-size: 11px; color: var(--flow); background: #0d2830; border: 1px solid #16414a; border-radius: 999px; padding: 3px 10px; }
-      .switch { margin-left: 8px; font-size: 12px; color: var(--ink-faint); }
-      .switch a { color: var(--flow); text-decoration: none; }
     </style>
   </head>
   <body>
@@ -19,38 +17,41 @@
     <div class="app">
       <div class="stagecol">
         <div class="modebar">
-          <div class="seg">
-            <button id="mode-dh" class="seg-btn">🙂 数字人</button>
-            <button id="mode-explore" class="seg-btn">🛰 3D 探索</button>
+          <div class="seg" role="group" aria-label="地图视图">
+            <button id="view-2d" class="seg-btn">2D 地图</button>
+            <button id="view-3d" class="seg-btn">3D 探索</button>
+          </div>
+          <div class="seg" role="group" aria-label="数字人视图">
+            <button id="view-face" class="seg-btn">🙂 脸部</button>
+            <button id="view-body" class="seg-btn">🧍 全身</button>
           </div>
           <span id="agent-badge" class="agent-badge">–</span>
-          <span class="switch"><a href="/">2D 视图</a></span>
+          <span id="dev-switch" class="dh-switch hidden"></span>
         </div>
 
-        <!-- 多机器人 3D 探索模式 -->
-        <section id="stage-explore" class="stage hidden">
+        <!-- 2D 俯视地图 -->
+        <section id="stage-2d" class="stage hidden">
           <header class="stage-head">
-            <h1>iRobot 3D 控制台</h1>
-            <span class="tb">虚拟 TurtleBot 4 · ROS 2 Jazzy 映射</span>
+            <h1>2D 俯视地图</h1>
+            <span class="tb">多机器人 · 站点 · 危险区 · 机械臂</span>
           </header>
-          <canvas id="scene3d"></canvas>
-          <div class="readouts">
-            <div class="ro"><span class="k">状态</span><b id="ro-state">待命</b></div>
-            <div class="ro"><span class="k">电量</span><b id="ro-battery">–</b></div>
-            <div class="ro"><span class="k">坐标</span><b id="ro-pose">–</b></div>
-            <div class="ro"><span class="k">stateVersion</span><b id="ro-sv">–</b></div>
-          </div>
+          <canvas id="map2d"></canvas>
         </section>
 
-        <!-- 单机器人数字人模式 -->
+        <!-- 多机器人 3D 探索 -->
+        <section id="stage-explore" class="stage hidden">
+          <header class="stage-head">
+            <h1>3D 探索 · 虚拟 TurtleBot 4</h1>
+            <span class="tb">ROS 2 Jazzy 映射 · 激光雷达 · 舰队</span>
+          </header>
+          <canvas id="scene3d"></canvas>
+        </section>
+
+        <!-- 单机器人数字人 -->
         <section id="stage-dh" class="stage hidden">
           <header class="stage-head">
             <h1>数字人 · <span id="dh-device">robot-1</span></h1>
-            <div class="seg sub">
-              <button id="dh-view-face" class="seg-btn">脸部</button>
-              <button id="dh-view-body" class="seg-btn">全身</button>
-            </div>
-            <span id="dh-switch" class="dh-switch hidden"></span>
+            <span class="tb">单机器人数字助手</span>
           </header>
           <canvas id="dh-face"></canvas>
           <div class="readouts dh-hud">
@@ -61,7 +62,6 @@
             <div class="ro"><span class="k">定位</span><b id="dh-loc">–</b></div>
             <div class="ro"><span class="k">stateVersion</span><b id="dh-sv">–</b></div>
           </div>
-
           <div class="col-head">机械臂</div>
           <div class="armbars">
             <div class="armbar"><span>伸缩</span><div class="bar"><i id="dh-arm-ext"></i></div></div>
@@ -73,19 +73,28 @@
             <button class="ctl" data-cmd="机械臂抓取">抓取</button>
             <button class="ctl" data-cmd="机械臂抬起">抬起</button>
           </div>
-
-          <div class="col-head">快捷动作</div>
-          <div class="quick">
-            <button class="ctl" data-cmd="去一号站点">去一号站点</button>
-            <button class="ctl" data-cmd="去二号站点">去二号站点</button>
-            <button class="ctl" data-cmd="去大厅">去大厅</button>
-            <button class="ctl" data-cmd="返回充电">返回充电</button>
-            <button class="ctl" data-cmd="前进一米">前进一米</button>
-            <button class="ctl" data-cmd="后退一米">后退一米</button>
-            <button class="ctl danger" data-cmd="进入危险区">进入危险区(S3)</button>
-            <button class="ctl" data-cmd="取消">取消动作</button>
-          </div>
         </section>
+
+        <!-- 2D / 3D 共享读数（数字人视图有自己的 HUD） -->
+        <div id="shared-ro" class="readouts hidden">
+          <div class="ro"><span class="k">状态</span><b id="ro-state">待命</b></div>
+          <div class="ro"><span class="k">电量</span><b id="ro-battery">–</b></div>
+          <div class="ro"><span class="k">坐标</span><b id="ro-pose">–</b></div>
+          <div class="ro"><span class="k">stateVersion</span><b id="ro-sv">–</b></div>
+        </div>
+
+        <!-- 快捷动作（各视图通用） -->
+        <div class="col-head">快捷动作</div>
+        <div class="quick">
+          <button class="ctl" data-cmd="去一号站点">去一号站点</button>
+          <button class="ctl" data-cmd="去二号站点">去二号站点</button>
+          <button class="ctl" data-cmd="去大厅">去大厅</button>
+          <button class="ctl" data-cmd="返回充电">返回充电</button>
+          <button class="ctl" data-cmd="前进一米">前进一米</button>
+          <button class="ctl" data-cmd="后退一米">后退一米</button>
+          <button class="ctl danger" data-cmd="进入危险区">进入危险区(S3)</button>
+          <button class="ctl" data-cmd="取消">取消动作</button>
+        </div>
       </div>
 
       <aside class="panel">
@@ -106,11 +115,12 @@
         <div id="transcript" class="transcript"></div>
         <div class="col-head">动作事件</div>
         <div id="actions" class="actions"></div>
-        <div class="hint">试试：“前进两米”、“去二号站点”、“进入危险区”(S3 审批)、“电量多少”、“返回充电”、“取消”、“急停”。数字人模式下也可直接点快捷按钮。</div>
+        <div class="hint">顶部按钮随时切换 <b>2D 地图 / 3D 探索 / 脸部 / 全身</b>。试试：“去二号站点”、“进入危险区”(S3 审批)、“伸出机械臂”、“电量多少”、“急停”。</div>
       </aside>
     </div>
 
     <script src="/scene3d.bundle.js"></script>
+    <script src="/map2d.js"></script>
     <script src="/digital-human.js"></script>
     <script src="/robot3d.js"></script>
   </body>

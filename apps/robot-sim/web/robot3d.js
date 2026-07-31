@@ -1,10 +1,18 @@
-// 控制台：一条 SSE 连接驱动两种视图 —— 多机器人 3D 探索 / 单机器人数字人。
-// 语音/文本/审批/急停等控制两模式共享，全部复用后端同一动作链路。
+// 控制台：一条 SSE 连接驱动四种视图 —— 2D 地图 / 3D 探索 / 数字人脸部 / 数字人全身。
+// 顶部按钮随时切换；语音/文本/审批/急停等控制全视图共享，复用后端同一动作链路。
 const $ = (id) => document.getElementById(id);
 const scene = window.IRobotScene.createRobotScene($("scene3d"));
+const map2d = window.IRobotMap2D.createMap($("map2d"));
 const avatar = window.IRobotDigitalHuman
   ? window.IRobotDigitalHuman.createAvatar($("dh-face"))
-  : { update() {}, setListening() {}, setThinking() {}, startSpeaking() {}, stopSpeaking() {} };
+  : { update() {}, setListening() {}, setThinking() {}, startSpeaking() {}, stopSpeaking() {}, setView() {} };
+
+// 三个渲染器统一驱动
+const R = {
+  update(dev, t) { map2d.update(dev, t); scene.update(dev, t); },
+  setState(dev, s) { map2d.setState(dev, s); scene.setState(dev, s); },
+  setActive(dev) { map2d.setActive(dev); scene.setActive(dev); },
+};
 
 let telemetry = null;
 let currentState = "IDLE";
@@ -18,34 +26,23 @@ const STATE_LABEL = {
   PROPOSED: "提案", PENDING_APPROVAL: "待审批", EXPIRED: "已过期",
 };
 
-// —— 显示模式：数字人 / 3D 探索 ——
-let mode = "dh";
-function applyMode(m) {
-  mode = m;
-  $("stage-dh").classList.toggle("hidden", m !== "dh");
-  $("stage-explore").classList.toggle("hidden", m !== "explore");
-  $("mode-dh").classList.toggle("active", m === "dh");
-  $("mode-explore").classList.toggle("active", m === "explore");
-  try { localStorage.setItem("irobot-view-mode", m); } catch {}
-  // 切换后立即用缓存重绘目标视图。
-  if (telemetry) { updateReadouts(); updateDhHud(telemetry); }
+// —— 视图：2d / 3d / face / body ——
+const VIEWS = ["2d", "3d", "face", "body"];
+const VIEW_BTN = { "2d": "view-2d", "3d": "view-3d", face: "view-face", body: "view-body" };
+let view = "face";
+function applyView(v) {
+  if (!VIEWS.includes(v)) v = "face";
+  view = v;
+  $("stage-2d").classList.toggle("hidden", v !== "2d");
+  $("stage-explore").classList.toggle("hidden", v !== "3d");
+  $("stage-dh").classList.toggle("hidden", v !== "face" && v !== "body");
+  $("shared-ro").classList.toggle("hidden", v !== "2d" && v !== "3d");
+  for (const k of VIEWS) $(VIEW_BTN[k]).classList.toggle("active", k === v);
+  if (v === "face" || v === "body") avatar.setView(v);
+  try { localStorage.setItem("irobot-view", v); } catch {}
+  renderActive();
 }
-$("mode-dh").onclick = () => applyMode("dh");
-$("mode-explore").onclick = () => applyMode("explore");
-
-// —— 数字人子视图：脸部 / 全身 ——
-let dhView = "face";
-try { const v = localStorage.getItem("irobot-dh-view"); if (v === "face" || v === "body") dhView = v; } catch {}
-function applyDhView(v) {
-  dhView = v;
-  avatar.setView(v);
-  $("dh-view-face").classList.toggle("active", v === "face");
-  $("dh-view-body").classList.toggle("active", v === "body");
-  try { localStorage.setItem("irobot-dh-view", v); } catch {}
-}
-$("dh-view-face").onclick = () => applyDhView("face");
-$("dh-view-body").onclick = () => applyDhView("body");
-applyDhView(dhView);
+for (const k of VIEWS) $(VIEW_BTN[k]).onclick = () => applyView(k);
 
 function updateReadouts() {
   if (!telemetry) return;
@@ -76,7 +73,7 @@ function updateDhHud(t) {
 }
 
 function buildDeviceSwitcher() {
-  const box = $("dh-switch");
+  const box = $("dev-switch");
   if (deviceIds.length <= 1) { box.classList.add("hidden"); box.innerHTML = ""; return; }
   box.classList.remove("hidden");
   box.innerHTML = "";
@@ -89,7 +86,6 @@ function buildDeviceSwitcher() {
   }
 }
 
-// 活动设备的遥测/动作 → 同步刷新两视图（都保持热，切换即时）。
 function renderActive() {
   updateReadouts();
   updateDhHud(telemetry);
@@ -104,26 +100,25 @@ es.onmessage = (e) => {
     activeDevice = msg.activeDevice;
     const robots = msg.robots || [{ deviceId: msg.activeDevice, telemetry: msg.telemetry }];
     deviceIds = robots.map((r) => r.deviceId);
-    for (const r of robots) { teleByDevice[r.deviceId] = r.telemetry; scene.update(r.deviceId, r.telemetry); }
-    scene.setActive(activeDevice);
+    for (const r of robots) { teleByDevice[r.deviceId] = r.telemetry; R.update(r.deviceId, r.telemetry); }
+    R.setActive(activeDevice);
     telemetry = teleByDevice[activeDevice];
     avatar.update(telemetry, null);
     buildDeviceSwitcher();
-    // 默认模式：手动选择优先；否则单机→数字人、多机→3D 探索。
+    // 默认视图：手动选择优先；否则单机→脸部、多机→3D 探索。
     let saved = null;
-    try { saved = localStorage.getItem("irobot-view-mode"); } catch {}
-    applyMode(saved === "dh" || saved === "explore" ? saved : (deviceIds.length > 1 ? "explore" : "dh"));
-    renderActive();
+    try { saved = localStorage.getItem("irobot-view"); } catch {}
+    applyView(VIEWS.includes(saved) ? saved : (deviceIds.length > 1 ? "3d" : "face"));
   } else if (msg.kind === "status") {
     $("thinking").classList.toggle("hidden", !msg.busy);
     avatar.setThinking(!!msg.busy);
   } else if (msg.kind === "telemetry") {
     teleByDevice[msg.deviceId] = msg.data;
-    scene.update(msg.deviceId, msg.data);
+    R.update(msg.deviceId, msg.data);
     if (msg.deviceId === activeDevice) { telemetry = msg.data; avatar.update(msg.data, null); renderActive(); }
   } else if (msg.kind === "active") {
     activeDevice = msg.deviceId;
-    scene.setActive(activeDevice);
+    R.setActive(activeDevice);
     telemetry = teleByDevice[activeDevice];
     avatar.update(telemetry, null);
     buildDeviceSwitcher();
@@ -134,7 +129,7 @@ es.onmessage = (e) => {
 };
 
 function onAction(ev, deviceId) {
-  scene.setState(deviceId, ev.state);
+  R.setState(deviceId, ev.state);
   if (deviceId === activeDevice && ev.state) {
     currentState = ev.state;
     avatar.update(null, ev.state);
@@ -154,7 +149,7 @@ function onAction(ev, deviceId) {
   if (["SUCCEEDED", "FAILED", "CANCELLED", "REJECTED", "EXPIRED"].includes(ev.state)) {
     setTimeout(() => {
       if (deviceId === activeDevice && currentState === ev.state) { currentState = "IDLE"; avatar.update(null, "IDLE"); renderActive(); }
-      scene.setState(deviceId, "IDLE");
+      R.setState(deviceId, "IDLE");
     }, 400);
   }
 }
@@ -175,7 +170,7 @@ $("cancel").onclick = () => post("/cancel");
 $("estop").onclick = () => post("/estop", { on: true });
 $("clear-estop").onclick = () => post("/estop", { on: false });
 
-// 数字人模式快捷动作 / 机械臂按钮：统一走 /converse（复用 NLU→Orchestrator→安全链路）。
+// 快捷动作 / 机械臂按钮：统一走 /converse（复用 NLU→Orchestrator→安全链路）。
 document.querySelectorAll("[data-cmd]").forEach((b) => { b.onclick = () => converse(b.getAttribute("data-cmd")); });
 
 // 审批

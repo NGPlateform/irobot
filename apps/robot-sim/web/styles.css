@@ -171,7 +171,7 @@ body {
 /* —— 双显示模式：分段切换 + 数字人 —— */
 .hidden { display: none !important; }
 .stagecol { display: flex; flex-direction: column; min-width: 0; }
-.modebar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.modebar { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .seg {
   display: inline-flex; gap: 3px; padding: 3px;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;

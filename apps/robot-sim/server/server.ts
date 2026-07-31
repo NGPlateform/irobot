@@ -15,6 +15,7 @@ const STATIC: Record<string, string> = {
   "/robot3d.js": "robot3d.js",
   "/scene3d.bundle.js": "scene3d.bundle.js",
   "/digital-human.js": "digital-human.js",
+  "/map2d.js": "map2d.js",
 };
 const MIME: Record<string, string> = {
   html: "text/html; charset=utf-8",
