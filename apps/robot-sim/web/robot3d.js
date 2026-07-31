@@ -33,6 +33,20 @@ function applyMode(m) {
 $("mode-dh").onclick = () => applyMode("dh");
 $("mode-explore").onclick = () => applyMode("explore");
 
+// —— 数字人子视图：脸部 / 全身 ——
+let dhView = "face";
+try { const v = localStorage.getItem("irobot-dh-view"); if (v === "face" || v === "body") dhView = v; } catch {}
+function applyDhView(v) {
+  dhView = v;
+  avatar.setView(v);
+  $("dh-view-face").classList.toggle("active", v === "face");
+  $("dh-view-body").classList.toggle("active", v === "body");
+  try { localStorage.setItem("irobot-dh-view", v); } catch {}
+}
+$("dh-view-face").onclick = () => applyDhView("face");
+$("dh-view-body").onclick = () => applyDhView("body");
+applyDhView(dhView);
+
 function updateReadouts() {
   if (!telemetry) return;
   $("ro-state").textContent = telemetry.estop ? "急停" : (STATE_LABEL[currentState] ?? currentState);
