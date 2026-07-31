@@ -222,19 +222,100 @@ function avatarSpeak(text) {
   speakTimer = setTimeout(() => avatar.stopSpeaking(), ms);
 }
 
-// STT（语音输入）
+// —— STT（语音输入）：两种模式 ——
+//   手工(hold)：点麦克风单次识别；按住【空格】push-to-talk（松开即发）。
+//   常开(open)：持续聆听、说完自动发送，onend 自动重启保持常开。
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recog = null, listening = false;
+let recog = null;
+let voiceMode = "hold";   // "hold" | "open"
+let listening = false;    // 识别是否正在进行
+let wantOpen = false;     // 常开是否已开启（onend 据此自动重启）
+let pushToTalk = false;   // 是否处于按住空格状态
+try { const v = localStorage.getItem("irobot-voice-mode"); if (v === "hold" || v === "open") voiceMode = v; } catch {}
+
+function micIdleLabel() {
+  return voiceMode === "open"
+    ? (wantOpen ? "常开聆听中（点击关闭）" : "常开：点击开启")
+    : "点麦克风，或按住空格说话";
+}
+function paintMic() {
+  const el = $("mic");
+  el.classList.toggle("listening", listening);
+  el.classList.toggle("armed", voiceMode === "open" && wantOpen && !listening);
+  $("mic-label").textContent = listening
+    ? (pushToTalk ? "聆听中…松开空格结束" : (voiceMode === "open" ? "常开聆听中…（点击关闭）" : "聆听中…点按结束"))
+    : micIdleLabel();
+  avatar.setListening(listening);
+}
+function startRecog(continuous) {
+  if (!recog || listening) return;
+  recog.continuous = !!continuous;
+  listening = true; // 乐观置位；onend 会纠正
+  try { recog.start(); } catch { listening = false; }
+  paintMic();
+}
+function stopRecog() { if (recog && listening) { try { recog.stop(); } catch {} } }
+
 if (SR) {
   recog = new SR(); recog.lang = "zh-CN"; recog.interimResults = false; recog.maxAlternatives = 1;
-  recog.onresult = (e) => converse(e.results[0][0].transcript);
-  recog.onend = () => { listening = false; $("mic").classList.remove("listening"); $("mic-label").textContent = "按住说话"; avatar.setListening(false); };
-  recog.onerror = () => { $("voice-note").textContent = "语音识别出错，可改用输入框。"; avatar.setListening(false); };
-  $("mic").onclick = () => {
-    if (listening) { recog.stop(); return; }
-    try { recog.start(); listening = true; $("mic").classList.add("listening"); $("mic-label").textContent = "聆听中…点按结束"; avatar.setListening(true); } catch {}
+  recog.onstart = () => { listening = true; paintMic(); };
+  recog.onresult = (e) => {
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) { const tx = e.results[i][0].transcript; if (tx.trim()) converse(tx); }
+    }
   };
+  recog.onerror = (e) => {
+    if (e && e.error && e.error !== "no-speech" && e.error !== "aborted")
+      $("voice-note").textContent = "语音识别出错，可改用输入框。";
+  };
+  recog.onend = () => {
+    listening = false;
+    if (voiceMode === "open" && wantOpen) setTimeout(() => startRecog(true), 150); // 常开：自动重启
+    else pushToTalk = false;
+    paintMic();
+  };
+
+  // 麦克风按钮：常开→开/关常开会话；手工→单次识别开/关。
+  $("mic").onclick = () => {
+    if (voiceMode === "open") {
+      if (wantOpen) { wantOpen = false; stopRecog(); } else { wantOpen = true; startRecog(true); }
+    } else {
+      if (listening) stopRecog(); else startRecog(false);
+    }
+    paintMic();
+  };
+
+  // 手工模式：按住空格 push-to-talk（焦点不在输入框、非重复按键）。
+  window.addEventListener("keydown", (e) => {
+    if (e.code !== "Space" || e.repeat || voiceMode !== "hold") return;
+    const el = document.activeElement;
+    if (el && (el.id === "text-in" || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) return;
+    e.preventDefault();
+    if (!listening) { pushToTalk = true; startRecog(false); }
+  });
+  window.addEventListener("keyup", (e) => {
+    if (e.code === "Space" && pushToTalk) { e.preventDefault(); stopRecog(); }
+  });
+
+  // 模式切换（切到常开即开启——此为用户手势）。
+  function setVoiceMode(m) {
+    voiceMode = m;
+    try { localStorage.setItem("irobot-voice-mode", m); } catch {}
+    $("vm-hold").classList.toggle("active", m === "hold");
+    $("vm-open").classList.toggle("active", m === "open");
+    if (m === "open") { wantOpen = true; startRecog(true); }
+    else { wantOpen = false; pushToTalk = false; stopRecog(); }
+    paintMic();
+  }
+  $("vm-hold").onclick = () => setVoiceMode("hold");
+  $("vm-open").onclick = () => setVoiceMode("open");
+
+  // 初始：设定模式与按钮态；不在加载时自动开麦（需用户手势）。
+  $("vm-hold").classList.toggle("active", voiceMode === "hold");
+  $("vm-open").classList.toggle("active", voiceMode === "open");
+  paintMic();
 } else {
   $("mic").disabled = true; $("mic-label").textContent = "此浏览器不支持语音";
+  $("vm-hold").disabled = true; $("vm-open").disabled = true;
   $("voice-note").textContent = "请用 Chrome / Edge 使用语音，或直接用下方输入框。";
 }

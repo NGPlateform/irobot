@@ -186,6 +186,11 @@ body {
 .seg.sub { padding: 2px; }
 .seg.sub .seg-btn { font-size: 12px; padding: 5px 11px; }
 
+.vmode { display: flex; align-items: center; gap: 10px; }
+.vmode-lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.mic.armed { border-color: var(--signal); }
+.mic.armed .dot { background: var(--signal); animation: pulse 1.6s infinite; }
+
 #dh-face {
   width: 100%; height: 40vh; min-height: 280px; display: block;
   border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line);
