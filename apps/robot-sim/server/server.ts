@@ -2,6 +2,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Session } from "./session.js";
+import { synthesize } from "./tts.js";
 
 const WEB_DIR = new URL("../web/", import.meta.url);
 
@@ -168,6 +169,29 @@ export function createSimServer(session: Session) {
     if (method === "GET" && url === "/map/list") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(await session.listMaps()));
+      return;
+    }
+
+    // 中文神经语音合成（edge-tts，零密钥）：GET /tts?voice=<id>&text=<...> → MP3。
+    if (method === "GET" && (url === "/tts" || url.startsWith("/tts?"))) {
+      const u = new URL(url, "http://localhost");
+      const text = (u.searchParams.get("text") ?? "").slice(0, 500);
+      const voice = u.searchParams.get("voice");
+      if (!text.trim()) {
+        res.writeHead(400, { "content-type": "text/plain" }).end("no text");
+        return;
+      }
+      try {
+        const mp3 = await synthesize(text, voice);
+        res.writeHead(200, {
+          "content-type": "audio/mpeg",
+          "cache-control": "no-store",
+          "content-length": String(mp3.length),
+        });
+        res.end(mp3);
+      } catch {
+        res.writeHead(502, { "content-type": "text/plain" }).end("tts failed"); // 客户端回退 Web Speech
+      }
       return;
     }
 

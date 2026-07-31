@@ -16,8 +16,12 @@ IROBOT_FLEET=2 pnpm --filter @irobot/robot-sim dev
 # 指令按设备寻址：“二号机器人去大厅”、“切换到机器人2”；不同控制域并行，同设备单写者。
 ```
 
-语音识别（STT）与合成（TTS）用浏览器原生 **Web Speech API**，**零外部 API、零密钥**。
-语音需在 **Chrome / Edge** 中使用；任何浏览器都可用输入框打字。
+语音识别（STT）用浏览器原生 **Web Speech API**（需 **Chrome / Edge**；任何浏览器都可用输入框打字）。
+语音合成（TTS）用 **微软 edge-tts 中文神经语音**（服务端 `GET /tts` 合成 MP3，客户端播放）——
+**零 API 密钥、免费**，比浏览器合成自然得多；支持**男/女声切换**（女声·晓晓 / 女声·晓伊 /
+男声·云希 / 男声·云扬，音色记入 `localStorage`）。数字人口型由真实音频的 play/ended 驱动。
+edge-tts 不可达时**自动回退浏览器 Web Speech**，断网也不中断。
+（合成会把回复短文本发到微软 TTS 端点；与已用的云 Claude/远程访问一致。）
 
 ## 认知层：三档 Agent 后端
 

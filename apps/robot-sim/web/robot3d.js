@@ -138,7 +138,7 @@ es.onmessage = (e) => {
     buildDeviceSwitcher();
     renderActive();
   } else if (msg.kind === "transcript") { addMsg(msg.role, msg.text); }
-  else if (msg.kind === "reply") { speak(msg.text); avatarSpeak(msg.text); }
+  else if (msg.kind === "reply") { speak(msg.text); }
   else if (msg.kind === "action") { onAction(msg.event, msg.deviceId); }
   else if (msg.kind === "map") {
     scene.setMap(msg.map); map2d.setMap(msg.map);
@@ -237,25 +237,46 @@ function showApproval(ev, deviceId) {
 function decide(approved) { if (!pendingApprovalId) return; post("/approve", { commandId: pendingApprovalId, approved }); hideApproval(); }
 function hideApproval() { pendingApprovalId = null; $("approval").classList.add("hidden"); $("approval").innerHTML = ""; }
 
-// TTS（音频）
+// TTS：优先用 edge-tts 中文神经语音（服务端合成 /tts，自然）；失败回退浏览器 Web Speech。
+let ttsVoice = "zh-CN-XiaoxiaoNeural";
+try { const v = localStorage.getItem("irobot-tts-voice"); if (v) ttsVoice = v; } catch {}
+const voiceSel = $("tts-voice");
+if (voiceSel) {
+  voiceSel.value = ttsVoice;
+  voiceSel.onchange = () => { ttsVoice = voiceSel.value; try { localStorage.setItem("irobot-tts-voice", ttsVoice); } catch {} speak("你好，我是机器人助手。"); };
+}
+
+// Web Speech 兜底
 let zhVoice = null;
 function pickVoice() { const vs = speechSynthesis.getVoices(); zhVoice = vs.find((v) => /zh|Chinese/i.test(v.lang + v.name)) ?? null; }
 if ("speechSynthesis" in window) { pickVoice(); speechSynthesis.onvoiceschanged = pickVoice; }
-function speak(text) {
-  if (!("speechSynthesis" in window)) return;
+function webSpeak(text) {
+  if (!("speechSynthesis" in window) || !text) return;
   const u = new SpeechSynthesisUtterance(text); u.lang = "zh-CN"; if (zhVoice) u.voice = zhVoice;
   u.onstart = () => talkers.startSpeaking();
   u.onend = () => talkers.stopSpeaking();
   u.onerror = () => talkers.stopSpeaking();
+  try { speechSynthesis.cancel(); } catch {}
   speechSynthesis.speak(u);
 }
-// 口型（视觉）：独立于 TTS 可用性，按文本长度估算时长，保证数字人一定"开口"。
+
+// edge-tts 音频播放；口型由音频 play/ended 驱动（时长准），另有计时器兜底。
+const ttsAudio = new Audio();
+let lastSpokenText = "";
 let speakTimer = null;
-function avatarSpeak(text) {
-  talkers.startSpeaking();
-  if (speakTimer) clearTimeout(speakTimer);
-  const ms = Math.min(6000, 700 + (text ? text.length : 0) * 130);
-  speakTimer = setTimeout(() => talkers.stopSpeaking(), ms);
+function stopSpeakTimer() { if (speakTimer) { clearTimeout(speakTimer); speakTimer = null; } }
+ttsAudio.onplay = () => { stopSpeakTimer(); talkers.startSpeaking(); };
+ttsAudio.onended = () => talkers.stopSpeaking();
+ttsAudio.onerror = () => { stopSpeakTimer(); talkers.stopSpeaking(); webSpeak(lastSpokenText); };
+function speak(text) {
+  if (!text || !text.trim()) return;
+  lastSpokenText = text;
+  try { ttsAudio.pause(); } catch {}
+  // 视觉兜底：先让数字人开口，音频事件到达/结束时接管；音频始终不来则计时器收尾。
+  talkers.startSpeaking(); stopSpeakTimer();
+  speakTimer = setTimeout(() => talkers.stopSpeaking(), Math.min(9000, 800 + text.length * 140));
+  ttsAudio.src = "/tts?voice=" + encodeURIComponent(ttsVoice) + "&text=" + encodeURIComponent(text);
+  ttsAudio.play().catch(() => { stopSpeakTimer(); webSpeak(text); });
 }
 
 // —— STT（语音输入）：两种模式 ——
