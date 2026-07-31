@@ -105,6 +105,45 @@ export function createRobotScene(canvas) {
   const dynamic = new THREE.Group(); scene.add(dynamic);
   let staticsBuilt = false;
   let dangerAABB = null;
+
+  // ---- 三维地图叠加：障碍盒 + 占据栅格体素 ----
+  const mapGroup = new THREE.Group(); scene.add(mapGroup);
+  let mapObstacles = [];
+  function clearGroup(g) {
+    for (const c of g.children) {
+      c.geometry?.dispose?.();
+      const mats = Array.isArray(c.material) ? c.material : [c.material];
+      for (const m of mats) m?.dispose?.();
+    }
+    g.clear();
+  }
+  function setMap(map) {
+    if (!map) return;
+    mapObstacles = map.obstacles || [];
+    clearGroup(mapGroup);
+    // 障碍物（半透明盒）
+    const obMat = new THREE.MeshStandardMaterial({ color: 0x6b7683, transparent: true, opacity: 0.55, roughness: 0.85 });
+    for (const o of mapObstacles) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(o.w, 0.5, o.h), obMat);
+      box.position.set(o.x, 0.25, o.y); mapGroup.add(box);
+    }
+    // 占据栅格：occupied=红色矮体素；free=暗青薄瓦片
+    const res = map.resolution, cols = map.cols, occ = map.occupancy || [];
+    let nOcc = 0, nFree = 0;
+    for (const v of occ) { if (v === 2) nOcc++; else if (v === 1) nFree++; }
+    if (nOcc > 0) {
+      const inst = new THREE.InstancedMesh(new THREE.BoxGeometry(res * 0.92, 0.16, res * 0.92), new THREE.MeshStandardMaterial({ color: 0xe5645b, transparent: true, opacity: 0.85 }), nOcc);
+      const m = new THREE.Matrix4(); let k = 0;
+      for (let i = 0; i < occ.length; i++) { if (occ[i] !== 2) continue; const cx = i % cols, cy = Math.floor(i / cols); m.makeTranslation((cx + 0.5) * res, 0.09, (cy + 0.5) * res); inst.setMatrixAt(k++, m); }
+      inst.instanceMatrix.needsUpdate = true; mapGroup.add(inst);
+    }
+    if (nFree > 0) {
+      const inst = new THREE.InstancedMesh(new THREE.PlaneGeometry(res * 0.95, res * 0.95), new THREE.MeshBasicMaterial({ color: 0x1c6b74, transparent: true, opacity: 0.3, side: THREE.DoubleSide }), nFree);
+      const rot = new THREE.Matrix4().makeRotationX(-Math.PI / 2); let k = 0;
+      for (let i = 0; i < occ.length; i++) { if (occ[i] !== 1) continue; const cx = i % cols, cy = Math.floor(i / cols); const mm = rot.clone(); mm.setPosition((cx + 0.5) * res, 0.016, (cy + 0.5) * res); inst.setMatrixAt(k++, mm); }
+      inst.instanceMatrix.needsUpdate = true; mapGroup.add(inst);
+    }
+  }
   function buildStatics(t) {
     const dock = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 0.02, 32), new THREE.MeshStandardMaterial({ color: 0x2f8a5b, emissive: 0x123a24 }));
     const dp = w2v(t.dock.x, t.dock.y); dock.position.set(dp.x, 0.011, dp.z); dynamic.add(dock);
@@ -155,6 +194,7 @@ export function createRobotScene(canvas) {
       const dx = Math.cos(a), dz = Math.sin(a);
       let t = rayToWall(px, pz, dx, dz);
       if (dangerAABB) t = Math.min(t, rayToAABB(px, pz, dx, dz, dangerAABB[0], dangerAABB[1], dangerAABB[2], dangerAABB[3]));
+      for (const o of mapObstacles) t = Math.min(t, rayToAABB(px, pz, dx, dz, o.x - o.w / 2, o.y - o.h / 2, o.x + o.w / 2, o.y + o.h / 2));
       const j = i * 3; lidarPos[j] = px + dx * t; lidarPos[j + 1] = 0.12; lidarPos[j + 2] = pz + dz * t;
     }
     lidarGeom.attributes.position.needsUpdate = true; lidarGeom.computeBoundingSphere();
@@ -221,7 +261,7 @@ export function createRobotScene(canvas) {
   function loop() { resize(); applyCamera(); renderer.render(scene, camera); requestAnimationFrame(loop); }
   applyCamera(); loop();
 
-  return { update, setState, setActive };
+  return { update, setState, setActive, setMap };
 }
 
 window.IRobotScene = { createRobotScene };

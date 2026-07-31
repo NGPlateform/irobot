@@ -4,6 +4,7 @@ import { Session } from "./session.js";
 import { createSimServer } from "./server.js";
 import { SqliteLedgerStore, MemoryLedgerStore, type LedgerStore } from "./ledger-store.js";
 import { EdgeClient } from "./edge-client.js";
+import { MapStore } from "./map-store.js";
 
 const PORT = Number(process.env.PORT ?? 8899);
 
@@ -33,8 +34,22 @@ if (edgeBin) {
   }
 }
 
-const session = new Session(store, edge);
+// 三维地图存取：state/maps/*.json（Nav2 map_server 风格）。
+const mapStore = new MapStore(process.env.IROBOT_MAP_DIR ?? "./state/maps");
+console.log(`  地图存储 → ${process.env.IROBOT_MAP_DIR ?? "./state/maps"}`);
+
+const session = new Session(store, edge, mapStore);
 await session.start();
+
+// 可选：启动即加载某张已存地图。
+if (process.env.IROBOT_MAP) {
+  try {
+    await session.loadMap(process.env.IROBOT_MAP);
+    console.log(`  已加载地图：${process.env.IROBOT_MAP}`);
+  } catch {
+    console.log(`  ⚠ 地图加载失败：${process.env.IROBOT_MAP}`);
+  }
+}
 
 const server = createSimServer(session);
 server.listen(PORT, () => {

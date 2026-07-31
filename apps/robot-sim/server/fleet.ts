@@ -2,6 +2,7 @@ import { SimRobot, type Telemetry } from "./sim-robot.js";
 import { Orchestrator } from "./orchestrator.js";
 import type { LedgerStore } from "./ledger-store.js";
 import type { EdgeClient } from "./edge-client.js";
+import { WorldMap } from "./world-map.js";
 
 export interface FleetMember {
   deviceId: string;
@@ -16,6 +17,8 @@ export interface FleetMember {
  */
 export class Fleet {
   private readonly members: FleetMember[] = [];
+  /** 全舰队共享一张世界地图（障碍/占据栅格）；建图与避障都基于它。 */
+  readonly worldMap = new WorldMap();
 
   constructor(
     count: number,
@@ -32,7 +35,7 @@ export class Fleet {
     for (let i = 0; i < count; i++) {
       const deviceId = `robot-${i + 1}`;
       const start = starts[i % starts.length]!;
-      const robot = new SimRobot((t) => onTelemetry(deviceId, t), start);
+      const robot = new SimRobot((t) => onTelemetry(deviceId, t), start, this.worldMap);
       const orchestrator = new Orchestrator(robot, undefined, store, i === 0 ? edge : undefined, deviceId);
       this.members.push({ deviceId, robot, orchestrator });
     }

@@ -186,6 +186,12 @@ body {
 .seg.sub { padding: 2px; }
 .seg.sub .seg-btn { font-size: 12px; padding: 5px 11px; }
 
+.maptools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+.maptools-lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+.maptools .ctl { padding: 6px 11px; font-size: 12.5px; }
+.mapsel { padding: 6px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel-2); color: var(--ink); font-size: 12.5px; }
+.mapcov { font-family: var(--mono); font-size: 12px; color: var(--flow); margin-left: auto; }
+
 .vmode { display: flex; align-items: center; gap: 10px; }
 .vmode-lbl { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
 .mic.armed { border-color: var(--signal); }

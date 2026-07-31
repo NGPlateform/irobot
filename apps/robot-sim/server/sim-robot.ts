@@ -1,4 +1,5 @@
 import type { ActionEvent, ActionEnvelope } from "@irobot/action-protocol";
+import type { WorldMap } from "./world-map.js";
 
 export interface Pose {
   x: number;
@@ -24,7 +25,9 @@ export interface Telemetry {
 interface ActiveMotion {
   commandId: string;
   capabilityId: string;
-  goal: { x: number; y: number };
+  goal: { x: number; y: number }; // 最终目标（用于充电坞判定）
+  waypoints: Array<{ x: number; y: number }>; // A* 避障航点（末位=goal），空世界为单点直线
+  wpIndex: number;
   speed: number;
   distanceTotal: number;
   distanceDone: number;
@@ -72,6 +75,7 @@ export class SimRobot {
   private armExtension = 0;
   private armGripper = 0;
   private timer: ReturnType<typeof setInterval> | null = null;
+  private scanTick = 0;
 
   readonly stations: Record<string, { x: number; y: number }> = {
     一号站点: { x: 8, y: 1.5 },
@@ -84,6 +88,7 @@ export class SimRobot {
   constructor(
     private onTelemetry: (t: Telemetry) => void,
     start: { x: number; y: number } = { x: 1, y: 1 },
+    private worldMap?: WorldMap, // 共享世界地图（障碍/占据）；无图时退化为直线导航
   ) {
     this.pose = { x: start.x, y: start.y, heading: 0 };
     this.dock = { x: start.x, y: start.y }; // 各机器人回自己的起始/充电位
@@ -199,12 +204,20 @@ export class SimRobot {
         }),
       );
     }
-    const dx = goal.x - this.pose.x;
-    const dy = goal.y - this.pose.y;
-    const distanceTotal = Math.hypot(dx, dy);
     this.charging = false;
-    // 立即转向目标（仿真简化）。
-    this.pose.heading = Math.atan2(dy, dx);
+    // A* 避障路径（空世界/无障碍时 = 单点直线到 goal）。
+    const waypoints =
+      this.worldMap && this.worldMap.obstacles.length > 0
+        ? this.worldMap.pathfind(this.pose, goal)
+        : [{ x: goal.x, y: goal.y }];
+    if (waypoints.length === 0) waypoints.push({ x: goal.x, y: goal.y });
+    // 路径总长（从当前位姿穿过所有航点）。
+    let distanceTotal = 0;
+    let px = this.pose.x, py = this.pose.y;
+    for (const wp of waypoints) { distanceTotal += Math.hypot(wp.x - px, wp.y - py); px = wp.x; py = wp.y; }
+    // 立即转向第一个航点。
+    const first = waypoints[0]!;
+    this.pose.heading = Math.atan2(first.y - this.pose.y, first.x - this.pose.x);
 
     // EXECUTING 进入。
     emit({
@@ -221,6 +234,8 @@ export class SimRobot {
         commandId: envelope.commandId,
         capabilityId: envelope.capabilityId,
         goal,
+        waypoints,
+        wpIndex: 0,
         speed,
         distanceTotal: Math.max(distanceTotal, 1e-6),
         distanceDone: 0,
@@ -296,6 +311,10 @@ export class SimRobot {
     if (!this.active && !this.activeArm && this.charging && this.battery < 100) {
       this.battery = Math.min(100, this.battery + 6 * dt);
       this.stateVersion++;
+    }
+    // 激光雷达建图：每 2 tick（~10Hz）用当前位姿累积占据栅格。
+    if (this.worldMap && ++this.scanTick % 2 === 0 && !this.estop) {
+      this.worldMap.integrateScan(this.pose);
     }
     // 每 tick 推一次遥测，让画面平滑。
     this.onTelemetry(this.telemetry());
@@ -378,28 +397,28 @@ export class SimRobot {
   }
 
   private advance(a: ActiveMotion, dt: number): void {
-    const step = a.speed * dt;
-    a.distanceDone += step;
-    const t = Math.min(1, a.distanceDone / a.distanceTotal);
-    const startToGoalX = a.goal.x;
-    const startToGoalY = a.goal.y;
-    // 线性插值当前位置：从"剩余距离"反推，保证到点精确。
-    const remaining = Math.max(0, a.distanceTotal - a.distanceDone);
-    const dirX = Math.cos(this.pose.heading);
-    const dirY = Math.sin(this.pose.heading);
-    if (remaining <= 1e-3) {
-      this.pose.x = startToGoalX;
-      this.pose.y = startToGoalY;
-    } else {
-      this.pose.x += dirX * step;
-      this.pose.y += dirY * step;
-    }
+    let step = a.speed * dt;
     this.battery = Math.max(0, this.battery - 1.2 * dt);
+    // 沿航点前进：吃掉本 tick 的步长，跨过到达的航点、更新朝向。
+    while (step > 1e-9 && a.wpIndex < a.waypoints.length) {
+      const wp = a.waypoints[a.wpIndex]!;
+      const dx = wp.x - this.pose.x, dy = wp.y - this.pose.y;
+      const d = Math.hypot(dx, dy);
+      if (d <= 1e-9) { a.wpIndex++; continue; }
+      this.pose.heading = Math.atan2(dy, dx);
+      if (step >= d) {
+        this.pose.x = wp.x; this.pose.y = wp.y; a.distanceDone += d; step -= d; a.wpIndex++;
+      } else {
+        this.pose.x += (dx / d) * step; this.pose.y += (dy / d) * step; a.distanceDone += step; step = 0;
+      }
+    }
     this.stateVersion++;
+    const t = Math.min(1, a.distanceDone / a.distanceTotal);
+    const arrived = a.wpIndex >= a.waypoints.length;
 
     // 每 ~200ms 发一次 feedback。
     a.lastFeedbackAt += dt;
-    if (a.lastFeedbackAt >= 0.2 || t >= 1) {
+    if (a.lastFeedbackAt >= 0.2 || arrived) {
       a.lastFeedbackAt = 0;
       a.emit({
         commandId: a.commandId,
@@ -414,7 +433,7 @@ export class SimRobot {
       });
     }
 
-    if (t >= 1) {
+    if (arrived) {
       const isDock =
         a.capabilityId === "robot.navigation.return_to_dock" ||
         (Math.abs(a.goal.x - this.dock.x) < 0.05 &&

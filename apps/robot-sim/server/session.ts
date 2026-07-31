@@ -9,6 +9,8 @@ import { ApiAgent, apiKeyAvailable } from "./agent-api.js";
 import { MemoryLedgerStore, type LedgerStore, type LedgerEntry } from "./ledger-store.js";
 import type { EdgeClient } from "./edge-client.js";
 import { Fleet } from "./fleet.js";
+import type { WorldMapData } from "./world-map.js";
+import type { MapStore, MapMeta } from "./map-store.js";
 
 interface Agent {
   ask(text: string, ctx: AgentWorldContext): Promise<NluResult | null>;
@@ -22,7 +24,8 @@ export type SseMessage =
   | { kind: "reply"; text: string }
   | { kind: "status"; busy: boolean; label?: string }
   | { kind: "active"; deviceId: string }
-  | { kind: "action"; event: ActionEvent; capabilityId: string; deviceId: string };
+  | { kind: "action"; event: ActionEvent; capabilityId: string; deviceId: string }
+  | { kind: "map"; map: WorldMapData; coverage: number };
 
 type Subscriber = (msg: SseMessage) => void;
 
@@ -52,8 +55,13 @@ export class Session {
   private readonly history: Array<{ role: "user" | "agent"; text: string }> = [];
   private agent: Agent | null = null;
   private agentName = "规则式 NLU";
+  private mapTimer: ReturnType<typeof setInterval> | null = null;
 
-  constructor(store: LedgerStore = new MemoryLedgerStore(), edge?: EdgeClient) {
+  constructor(
+    store: LedgerStore = new MemoryLedgerStore(),
+    edge?: EdgeClient,
+    private readonly mapStore?: MapStore,
+  ) {
     this.store = store;
     const count = Math.max(1, Math.min(4, Number(process.env.IROBOT_FLEET ?? 1)));
     this.fleet = new Fleet(count, (deviceId, t) => this.broadcast({ kind: "telemetry", deviceId, data: t }), store, edge);
@@ -77,10 +85,53 @@ export class Session {
     if (!this.agent) this.agentName = "规则式 NLU";
     if (this.fleet.all().length > 1) console.log(`  舰队：${this.fleet.deviceIds().join(", ")}`);
     console.log(`  Agent: ${this.agentName}`);
+    // 建图节流广播：占据栅格有变化时每 ~500ms 推一次。
+    this.mapTimer = setInterval(() => {
+      if (this.fleet.worldMap.dirty) {
+        this.fleet.worldMap.dirty = false;
+        this.broadcast(this.mapMessage());
+      }
+    }, 500);
+    if (this.mapTimer && "unref" in this.mapTimer) (this.mapTimer as { unref: () => void }).unref();
   }
   stop(): void {
     this.fleet.stop();
     this.agent?.stop();
+    if (this.mapTimer) { clearInterval(this.mapTimer); this.mapTimer = null; }
+  }
+
+  // ---- 三维地图：生成 / 建图（占据）/ 保存 / 加载 / 清除 ----
+  private mapMessage(): SseMessage {
+    return { kind: "map", map: this.fleet.worldMap.serialize(), coverage: this.fleet.worldMap.coverage() };
+  }
+  /** 程序化生成障碍环境并重置建图。 */
+  generateMap(seed?: number): void {
+    this.fleet.worldMap.generate(seed ?? (Date.now() & 0x7fffffff));
+    this.broadcast(this.mapMessage());
+    this.say("已生成新的障碍环境，开始探索建图。");
+  }
+  /** 清除已建占据栅格（保留障碍环境）。 */
+  clearMap(): void {
+    this.fleet.worldMap.clearOccupancy();
+    this.broadcast(this.mapMessage());
+    this.say("已清除建图。");
+  }
+  async saveMap(name: string): Promise<string | null> {
+    if (!this.mapStore) return null;
+    const saved = await this.mapStore.save(name, this.fleet.worldMap.serialize());
+    this.say(`地图已保存为「${saved}」。`);
+    return saved;
+  }
+  async loadMap(name: string): Promise<boolean> {
+    if (!this.mapStore) return false;
+    const data = await this.mapStore.load(name);
+    this.fleet.worldMap.load(data);
+    this.broadcast(this.mapMessage());
+    this.say(`已加载地图「${name}」。`);
+    return true;
+  }
+  async listMaps(): Promise<MapMeta[]> {
+    return this.mapStore ? this.mapStore.list() : [];
   }
 
   subscribe(fn: Subscriber): () => void {
@@ -93,6 +144,7 @@ export class Session {
       capabilities: [...CAPABILITIES.keys()],
       agent: this.agentName,
     });
+    fn(this.mapMessage()); // 晚订阅者立即拿到当前地图
     return () => this.subscribers.delete(fn);
   }
 

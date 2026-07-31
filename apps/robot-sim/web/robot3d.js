@@ -140,7 +140,29 @@ es.onmessage = (e) => {
   } else if (msg.kind === "transcript") { addMsg(msg.role, msg.text); }
   else if (msg.kind === "reply") { speak(msg.text); avatarSpeak(msg.text); }
   else if (msg.kind === "action") { onAction(msg.event, msg.deviceId); }
+  else if (msg.kind === "map") {
+    scene.setMap(msg.map); map2d.setMap(msg.map);
+    $("map-cov").textContent = "建图 " + Math.round((msg.coverage || 0) * 100) + "%";
+  }
 };
+
+// —— 三维地图控制 ——
+async function refreshMapList() {
+  try {
+    const list = await (await fetch("/map/list")).json();
+    const sel = $("map-load-sel");
+    sel.innerHTML = '<option value="">加载已存地图…</option>' +
+      list.map((m) => `<option value="${m.name}">${m.name}（障碍${m.obstacles}·${Math.round(m.coverage * 100)}%）</option>`).join("");
+  } catch {}
+}
+$("map-gen").onclick = () => post("/map/generate", {});
+$("map-clear").onclick = () => post("/map/clear", {});
+$("map-save").onclick = async () => {
+  const name = prompt("地图名称", "map-" + new Date().toISOString().slice(5, 16).replace(/[-:T]/g, ""));
+  if (name) { await post("/map/save", { name }); refreshMapList(); }
+};
+$("map-load-sel").onchange = (e) => { if (e.target.value) post("/map/load", { name: e.target.value }); };
+refreshMapList();
 
 function onAction(ev, deviceId) {
   R.setState(deviceId, ev.state);

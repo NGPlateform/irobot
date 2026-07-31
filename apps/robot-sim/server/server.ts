@@ -135,6 +135,42 @@ export function createSimServer(session: Session) {
       return;
     }
 
+    // 三维地图：生成 / 建图 / 保存 / 加载 / 列表 / 清除
+    if (method === "POST" && url === "/map/generate") {
+      const body = await readBody(req);
+      const seed = Number(JSON.parse(body || "{}").seed);
+      session.generateMap(Number.isFinite(seed) && seed > 0 ? seed : undefined);
+      res.writeHead(202).end("{}");
+      return;
+    }
+    if (method === "POST" && url === "/map/clear") {
+      session.clearMap();
+      res.writeHead(202).end("{}");
+      return;
+    }
+    if (method === "POST" && url === "/map/save") {
+      const name = String(JSON.parse((await readBody(req)) || "{}").name ?? "").slice(0, 60);
+      const saved = await session.saveMap(name);
+      res.writeHead(saved ? 200 : 501, { "content-type": "application/json" });
+      res.end(JSON.stringify({ name: saved }));
+      return;
+    }
+    if (method === "POST" && url === "/map/load") {
+      const name = String(JSON.parse((await readBody(req)) || "{}").name ?? "");
+      try {
+        const ok = await session.loadMap(name);
+        res.writeHead(ok ? 202 : 404).end("{}");
+      } catch {
+        res.writeHead(404, { "content-type": "application/json" }).end('{"error":"not found"}');
+      }
+      return;
+    }
+    if (method === "GET" && url === "/map/list") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(await session.listMaps()));
+      return;
+    }
+
     res.writeHead(404).end("not found");
   });
 }

@@ -30,6 +30,16 @@
           <span id="dev-switch" class="dh-switch hidden"></span>
         </div>
 
+        <!-- 三维地图工具条（作用于 2D/3D 视图） -->
+        <div class="maptools">
+          <span class="maptools-lbl">地图</span>
+          <button id="map-gen" class="ctl">生成环境</button>
+          <button id="map-clear" class="ctl">清除建图</button>
+          <button id="map-save" class="ctl">保存</button>
+          <select id="map-load-sel" class="mapsel"><option value="">加载已存地图…</option></select>
+          <span id="map-cov" class="mapcov">建图 0%</span>
+        </div>
+
         <!-- 2D 俯视地图 -->
         <section id="stage-2d" class="stage hidden">
           <header class="stage-head">

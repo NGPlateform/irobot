@@ -11,6 +11,8 @@
     var robots = new Map(); // deviceId → {t,state,color,trail}
     var activeDevice = null;
     var colorIdx = 0;
+    var mapData = null; // 三维地图：障碍 + 占据栅格
+    function setMap(map) { mapData = map; }
 
     function ensure(deviceId) {
       var r = robots.get(deviceId);
@@ -63,6 +65,24 @@
       var o = w2p(0, 0, w, h), e = w2p(WORLD_W, WORLD_H, w, h);
       ctx.strokeStyle = "#2c3a48"; ctx.lineWidth = 2;
       ctx.strokeRect(Math.min(o[0], e[0]), Math.min(o[1], e[1]), Math.abs(e[0] - o[0]), Math.abs(e[1] - o[1]));
+      // 占据栅格（free 暗青 / occupied 红）+ 障碍描边
+      if (mapData) {
+        var res = mapData.resolution, cols = mapData.cols, occ = mapData.occupancy || [];
+        var cw = (res / WORLD_W) * (w - 2 * PAD) + 0.6, ch = (res / WORLD_H) * (h - 2 * PAD) + 0.6;
+        for (var i = 0; i < occ.length; i++) {
+          if (occ[i] === 0) continue;
+          var gx = i % cols, gy = Math.floor(i / cols);
+          var cp = w2p((gx + 0.5) * res, (gy + 0.5) * res, w, h);
+          ctx.fillStyle = occ[i] === 2 ? "rgba(229,100,91,.6)" : "rgba(28,107,116,.28)";
+          ctx.fillRect(cp[0] - cw / 2, cp[1] - ch / 2, cw, ch);
+        }
+        ctx.strokeStyle = "rgba(160,177,190,.55)"; ctx.lineWidth = 1.5;
+        for (var oi = 0; oi < (mapData.obstacles || []).length; oi++) {
+          var ob = mapData.obstacles[oi];
+          var a = w2p(ob.x - ob.w / 2, ob.y + ob.h / 2, w, h), b = w2p(ob.x + ob.w / 2, ob.y - ob.h / 2, w, h);
+          ctx.strokeRect(a[0], a[1], b[0] - a[0], b[1] - a[1]);
+        }
+      }
       if (!t) return;
       // 危险区
       if (t.restrictedZone) {
@@ -154,7 +174,7 @@
     }
     window.requestAnimationFrame(frame);
 
-    return { update: update, setState: setState, setActive: setActive };
+    return { update: update, setState: setState, setActive: setActive, setMap: setMap };
   }
 
   window.IRobotMap2D = { createMap: createMap };
