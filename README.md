@@ -2,6 +2,11 @@
 
 [![Repo](https://img.shields.io/badge/GitHub-NGPlateform%2Firobot-24292e?logo=github)](https://github.com/NGPlateform/irobot)
 [![CI](https://github.com/NGPlateform/irobot/actions/workflows/ci.yml/badge.svg)](https://github.com/NGPlateform/irobot/actions/workflows/ci.yml)
+[![Live Demo](https://img.shields.io/badge/Live_Demo-数字人_·_3D_探索-4fc4d1)](https://claude.ai/code/artifact/68e63510-a0b5-439e-b4dc-84ed72716390)
+
+▶ **在线 Demo**（交互式落地页，实时数字人脸部/全身 + 3D 探索视图）：
+<https://claude.ai/code/artifact/68e63510-a0b5-439e-b4dc-84ed72716390>
+其源码见 [`docs/landing.html`](docs/landing.html)（自包含单文件，数字人为真实渲染代码）。
 
 将自然语言转化为**可验证、可审计、可取消**的设备动作。核心架构为「慢速认知环 + 快速确定性控制环」双环分离：LLM 只提出目标或候选动作，物理执行由独立的命令编排与边缘安全监督层负责。
 
