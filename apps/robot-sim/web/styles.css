@@ -35,16 +35,21 @@ body {
 }
 
 .app {
-  display: grid; grid-template-columns: minmax(0, 1fr) 400px;
-  gap: 18px; max-width: 1240px; margin: 0 auto; padding: 22px; height: 100%;
+  display: grid; grid-template-columns: minmax(0, 1fr) clamp(320px, 24vw, 460px);
+  gap: 16px; max-width: none; margin: 0; padding: 14px 16px; height: 100vh;
 }
+.stagecol { min-height: 0; }
 @media (max-width: 940px) {
   .app { grid-template-columns: 1fr; height: auto; }
+  .stage { flex: none; }
+  #scene3d, #map2d, #vrm-stage, #dh-face { flex: none; height: 58vh; }
+  .transcript, .actions { flex: none; max-height: 30vh; }
 }
 
 .stage {
   background: var(--panel); border: 1px solid var(--line);
-  border-radius: 14px; padding: 18px; display: flex; flex-direction: column;
+  border-radius: 14px; padding: 16px; display: flex; flex-direction: column;
+  flex: 1 1 auto; min-height: 0;
 }
 .stage-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; }
 .stage-head h1 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
@@ -118,12 +123,12 @@ body {
   margin: 16px 0 8px; padding-bottom: 6px; border-bottom: 1px solid var(--line);
 }
 
-.transcript { overflow-y: auto; max-height: 220px; display: flex; flex-direction: column; gap: 8px; }
+.transcript { overflow-y: auto; flex: 1 1 0; min-height: 80px; display: flex; flex-direction: column; gap: 8px; }
 .msg { padding: 8px 11px; border-radius: 10px; font-size: 13.5px; line-height: 1.5; max-width: 92%; }
 .msg.user { align-self: flex-end; background: #0d2830; border: 1px solid #16414a; }
 .msg.agent { align-self: flex-start; background: var(--panel-2); border: 1px solid var(--line); }
 
-.actions { overflow-y: auto; max-height: 190px; display: flex; flex-direction: column; gap: 5px; }
+.actions { overflow-y: auto; flex: 1 1 0; min-height: 60px; display: flex; flex-direction: column; gap: 5px; }
 .evt {
   font-family: var(--mono); font-size: 11.5px; padding: 5px 9px; border-radius: 6px;
   background: var(--panel-2); border-left: 3px solid var(--ink-faint);
@@ -198,7 +203,7 @@ body {
 .mic.armed .dot { background: var(--signal); animation: pulse 1.6s infinite; }
 
 #dh-face {
-  width: 100%; height: 40vh; min-height: 280px; display: block;
+  width: 100%; flex: 1 1 auto; min-height: 240px; display: block;
   border-radius: 10px; background: var(--panel-2); border: 1px solid var(--line);
 }
 .dh-hud { grid-template-columns: repeat(3, 1fr); }

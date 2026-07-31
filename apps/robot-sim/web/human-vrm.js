@@ -86,6 +86,18 @@ function createHuman(container) {
       try { VRMUtils.combineSkeletons(gltf.scene); } catch {}
       vrm.scene.traverse((o) => { o.frustumCulled = false; });
       scene.add(vrm.scene);
+      // 把默认 T-pose 手臂放到自然下垂，任意画幅都是干净的人物肖像。
+      const hb = vrm.humanoid;
+      if (hb) {
+        const lu = hb.getNormalizedBoneNode("leftUpperArm");
+        const ru = hb.getNormalizedBoneNode("rightUpperArm");
+        if (lu) lu.rotation.z = -1.2;
+        if (ru) ru.rotation.z = 1.2;
+        const ll = hb.getNormalizedBoneNode("leftLowerArm");
+        const rl = hb.getNormalizedBoneNode("rightLowerArm");
+        if (ll) ll.rotation.z = -0.2;
+        if (rl) rl.rotation.z = 0.2;
+      }
       // 取头骨用于构图与待机微动
       headBone = vrm.humanoid && vrm.humanoid.getNormalizedBoneNode("head");
       if (headBone) {
