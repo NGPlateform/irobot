@@ -240,9 +240,13 @@ export function createSimServer(session: Session, avatarStore?: AvatarStore) {
         return;
       }
       if (!isGlb(buf)) { res.writeHead(400, { "content-type": "application/json" }).end('{"error":"不是有效的 VRM/glb 文件"}'); return; }
-      const saved = await avatarStore.save(name, buf);
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(JSON.stringify({ name: saved, url: `/avatars/${encodeURIComponent(saved)}.vrm` }));
+      try {
+        const saved = await avatarStore.save(name, buf);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ name: saved, url: `/avatars/${encodeURIComponent(saved)}.vrm` }));
+      } catch {
+        res.writeHead(500, { "content-type": "application/json" }).end('{"error":"保存失败"}');
+      }
       return;
     }
     if (method === "POST" && url === "/avatars/delete") {

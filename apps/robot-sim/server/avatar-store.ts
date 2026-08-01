@@ -30,6 +30,7 @@ export class AvatarStore {
 
   async save(name: string, buf: Buffer): Promise<string> {
     const safe = sanitizeName(name);
+    mkdirSync(this.dir, { recursive: true }); // 目录可能被运行时删除，写前确保存在
     await writeFile(this.file(safe), buf);
     return safe;
   }

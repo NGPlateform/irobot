@@ -28,4 +28,12 @@ describe("AvatarStore（上传/列表/删除/名称清洗）", () => {
     await store.remove("勇者A");
     expect(await store.has("勇者A")).toBe(false);
   });
+
+  it("目录被运行时删除后 save 仍能恢复（不崩）", async () => {
+    const store = new AvatarStore(dir);
+    rmSync(dir, { recursive: true, force: true }); // 模拟目录被删
+    const name = await store.save("恢复", Buffer.from("glTF\x02\x00\x00\x00x"));
+    expect(name).toBe("恢复");
+    expect(await store.has("恢复")).toBe(true);
+  });
 });
