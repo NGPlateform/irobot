@@ -68,6 +68,31 @@ const RAW: unknown[] = [
     },
   },
   {
+    capabilityId: "robot.navigation.navigate_to_point",
+    version: "1.0.0",
+    kind: "action",
+    description: "导航到地图内任意坐标（自主探索/绕障，A* 避开障碍与河流）",
+    safetyClass: "S2_GUARDED",
+    concurrencyKey: "base_motion",
+    interruptMode: "abort",
+    defaultTimeoutMs: 90000,
+    offlinePolicy: "execute_with_valid_lease",
+    inputSchema: {
+      type: "object",
+      required: ["x", "y"],
+      properties: {
+        x: { type: "number", minimum: 0, maximum: 9.5 },
+        y: { type: "number", minimum: 0, maximum: 8 },
+      },
+    },
+    preconditions: [
+      { path: "safety.estop", op: "==", value: false },
+      { path: "localization.healthy", op: "==", value: true },
+      { path: "battery.percent", op: ">=", value: 10 },
+    ],
+    resultSchema: { type: "object", required: ["distanceTravelledM"], properties: {} },
+  },
+  {
     capabilityId: "robot.navigation.navigate_to_station",
     version: "1.0.0",
     kind: "action",

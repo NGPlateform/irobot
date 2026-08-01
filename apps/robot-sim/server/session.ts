@@ -25,7 +25,8 @@ export type SseMessage =
   | { kind: "status"; busy: boolean; label?: string }
   | { kind: "active"; deviceId: string }
   | { kind: "action"; event: ActionEvent; capabilityId: string; deviceId: string }
-  | { kind: "map"; map: WorldMapData; coverage: number };
+  | { kind: "map"; map: WorldMapData; coverage: number }
+  | { kind: "explore"; on: boolean; coverage: number };
 
 type Subscriber = (msg: SseMessage) => void;
 
@@ -56,6 +57,8 @@ export class Session {
   private agent: Agent | null = null;
   private agentName = "规则式 NLU";
   private mapTimer: ReturnType<typeof setInterval> | null = null;
+  private exploreTimer: ReturnType<typeof setInterval> | null = null;
+  private exploring = false;
 
   constructor(
     store: LedgerStore = new MemoryLedgerStore(),
@@ -98,6 +101,46 @@ export class Session {
     this.fleet.stop();
     this.agent?.stop();
     if (this.mapTimer) { clearInterval(this.mapTimer); this.mapTimer = null; }
+    if (this.exploreTimer) { clearInterval(this.exploreTimer); this.exploreTimer = null; }
+  }
+
+  // ---- 自主探索（frontier）：驱动各机器人驶向最近可达前沿建图，避开树/岩/河 ----
+  private exploreMessage(): SseMessage {
+    return { kind: "explore", on: this.exploring, coverage: this.fleet.worldMap.coverage() };
+  }
+  autoExplore(on: boolean): void {
+    if (on === this.exploring) return;
+    this.exploring = on;
+    if (this.exploreTimer) { clearInterval(this.exploreTimer); this.exploreTimer = null; }
+    if (on) {
+      this.say("开始自主探索，正在建图。");
+      this.broadcast(this.exploreMessage());
+      let idleRounds = 0;
+      this.exploreTimer = setInterval(() => {
+        const wm = this.fleet.worldMap;
+        let anyGoal = false;
+        for (const m of this.fleet.all()) {
+          const t = m.robot.telemetry();
+          if (t.estop || m.robot.isBusy()) { anyGoal = true; continue; } // 忙/急停不派新目标
+          const goal = wm.nextFrontier(t.pose);
+          if (!goal) continue;
+          anyGoal = true;
+          void m.orchestrator.propose(
+            { capabilityId: "robot.navigation.navigate_to_point", arguments: { x: goal.x, y: goal.y } },
+            (ev) => this.broadcast({ kind: "action", event: ev, capabilityId: "robot.navigation.navigate_to_point", deviceId: m.deviceId }),
+          );
+        }
+        // 连续几轮无前沿可派 → 探索完成
+        idleRounds = anyGoal ? 0 : idleRounds + 1;
+        if (idleRounds >= 3) {
+          this.autoExplore(false);
+          this.say("自主探索完成，地图已建好。");
+        }
+      }, 800);
+      if (this.exploreTimer && "unref" in this.exploreTimer) (this.exploreTimer as { unref: () => void }).unref();
+    } else {
+      this.broadcast(this.exploreMessage());
+    }
   }
 
   // ---- 三维地图：生成 / 建图（占据）/ 保存 / 加载 / 清除 ----
@@ -145,6 +188,7 @@ export class Session {
       agent: this.agentName,
     });
     fn(this.mapMessage()); // 晚订阅者立即拿到当前地图
+    fn(this.exploreMessage()); // 及探索状态
     return () => this.subscribers.delete(fn);
   }
 

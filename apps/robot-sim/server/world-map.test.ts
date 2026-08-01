@@ -59,4 +59,30 @@ describe("WorldMap（生成 / 扫描 / 建图 / 避障 / 序列化）", () => {
     expect(m2.obstacles).toEqual(m.obstacles);
     void UNKNOWN;
   });
+
+  it("generate 产出地形种子/河流/障碍 kind，且序列化含新字段", () => {
+    const m = new WorldMap(); m.generate(9);
+    const d = m.serialize();
+    expect(d.terrainSeed).toBe(9);
+    expect(d.river.length).toBeGreaterThanOrEqual(2);
+    expect(d.riverWidth).toBeGreaterThan(0);
+    expect(m.obstacles.every((o) => o.kind === "tree" || o.kind === "rock")).toBe(true);
+    // 河流中心点不可通行
+    const mid = m.river[Math.floor(m.river.length / 2)]!;
+    expect(m.pointBlocked(mid.x, mid.y)).toBe(true);
+  });
+
+  it("nextFrontier：有未知邻的可达空地返回前沿点；全已知返回 null", () => {
+    const m = new WorldMap(); // 空世界
+    expect(m.nextFrontier({ x: 1, y: 1 })).toBeNull(); // 全未知、无 FREE → 无前沿
+    m.integrateScan({ x: 1, y: 1 }); // 扫一圈：周围 FREE，边缘接未知
+    const f = m.nextFrontier({ x: 1, y: 1 });
+    expect(f).not.toBeNull();
+    expect(m.pointBlocked(f!.x, f!.y, 0.2)).toBe(false); // 前沿点可站
+    // 把整图标为已知 → 无前沿
+    for (let i = 0; i < m.cols * m.rows; i++) { /* via many scans */ }
+    const big = new WorldMap();
+    for (let x = 0.5; x < big.W; x += 0.8) for (let y = 0.5; y < big.H; y += 0.8) big.integrateScan({ x, y });
+    expect(big.nextFrontier({ x: 4.5, y: 4 })).toBeNull();
+  });
 });

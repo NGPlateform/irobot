@@ -146,7 +146,16 @@ es.onmessage = (e) => {
     scene.setMap(msg.map); map2d.setMap(msg.map);
     $("map-cov").textContent = "建图 " + Math.round((msg.coverage || 0) * 100) + "%";
   }
+  else if (msg.kind === "explore") {
+    exploring = !!msg.on;
+    const b = $("explore-btn");
+    b.textContent = exploring ? "⏹ 停止探索" : "🧭 自动探索";
+    b.classList.toggle("active", exploring);
+    if (typeof msg.coverage === "number") $("map-cov").textContent = "建图 " + Math.round(msg.coverage * 100) + "%";
+  }
 };
+let exploring = false;
+$("explore-btn").onclick = () => post("/explore", { on: !exploring });
 
 // —— 三维地图控制 ——
 async function refreshMapList() {

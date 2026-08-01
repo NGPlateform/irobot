@@ -165,6 +165,12 @@ export function createSimServer(session: Session, avatarStore?: AvatarStore) {
       res.writeHead(202).end("{}");
       return;
     }
+    if (method === "POST" && url === "/explore") {
+      const on = Boolean(JSON.parse((await readBody(req)) || "{}").on);
+      session.autoExplore(on);
+      res.writeHead(202).end("{}");
+      return;
+    }
     if (method === "POST" && url === "/map/save") {
       const name = String(JSON.parse((await readBody(req)) || "{}").name ?? "").slice(0, 60);
       const saved = await session.saveMap(name);

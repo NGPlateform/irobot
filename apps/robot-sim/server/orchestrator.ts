@@ -171,6 +171,15 @@ export class Orchestrator {
           speed,
         };
       }
+      case "robot.navigation.navigate_to_point": {
+        const gx = Number(proposal.arguments.x), gy = Number(proposal.arguments.y);
+        if (!Number.isFinite(gx) || !Number.isFinite(gy)) return { error: "缺少有效的目标坐标" };
+        return {
+          kind: "base",
+          goal: { x: Math.max(0, Math.min(9.5, gx)), y: Math.max(0, Math.min(8, gy)) },
+          speed: 0.5,
+        };
+      }
       case "robot.navigation.navigate_to_station": {
         const name = String(proposal.arguments.station ?? "");
         const s = t.stations[name];

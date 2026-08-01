@@ -44,6 +44,18 @@ describe("仿真闭环：Orchestrator + SimRobot", () => {
     expect(final.state).toBe("SUCCEEDED");
   });
 
+  it("navigate_to_point 导航到任意坐标（自主探索用）到 SUCCEEDED", async () => {
+    const { robot, orch } = makeStack();
+    const final = await orch.propose(
+      { capabilityId: "robot.navigation.navigate_to_point", arguments: { x: 1.6, y: 1.6 } },
+      () => {},
+    );
+    robot.stop();
+    expect(final.state).toBe("SUCCEEDED");
+    const p = robot.telemetry().pose;
+    expect(Math.hypot(p.x - 1.6, p.y - 1.6)).toBeLessThan(0.3); // 抵达目标附近
+  });
+
   it("query_battery 同步返回电量", async () => {
     const { robot, orch } = makeStack();
     const final = await orch.propose(

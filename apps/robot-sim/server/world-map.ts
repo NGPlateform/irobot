@@ -7,6 +7,7 @@ export interface Aabb {
   y: number;
   w: number; // 全宽
   h: number; // 全高
+  kind?: "tree" | "rock"; // 客户端按此渲染低多边形树/岩
 }
 export type Station = { x: number; y: number };
 
@@ -18,6 +19,9 @@ export interface WorldMapData {
   obstacles: Aabb[];
   stations: Record<string, Station>;
   occupancy: number[]; // 长度 cols*rows，0 未知 / 1 空 / 2 占据
+  terrainSeed: number; // 客户端据此程序化生成地形
+  river: Station[]; // 河流折线（半程溪流，不可通行）
+  riverWidth: number;
 }
 
 export const UNKNOWN = 0;
@@ -54,6 +58,9 @@ export class WorldMap {
   private occ: Uint8Array;
   obstacles: Aabb[] = [];
   stations: Record<string, Station> = { ...DEFAULT_STATIONS };
+  terrainSeed = 0;
+  river: Station[] = [];
+  riverWidth = 0.8;
   /** 占据有变化时置位，供 Session 节流广播。 */
   dirty = false;
 
@@ -73,36 +80,74 @@ export class WorldMap {
     if (i >= 0 && i < this.occ.length && this.occ[i] !== v) { this.occ[i] = v; this.dirty = true; }
   }
 
-  /** 点是否落在某障碍内（可加机器人半径 margin，用于避障膨胀）。 */
+  /** 点是否落在某障碍内 / 河流内（可加机器人半径 margin，用于避障膨胀）。 */
   pointBlocked(x: number, y: number, margin = 0): boolean {
     if (x < margin || y < margin || x > this.W - margin || y > this.H - margin) return true;
     for (const o of this.obstacles) {
       if (Math.abs(x - o.x) <= o.w / 2 + margin && Math.abs(y - o.y) <= o.h / 2 + margin) return true;
     }
+    if (this.river.length >= 2 && this.distToRiver(x, y) <= this.riverWidth / 2 + margin) return true;
     return false;
+  }
+
+  /** 点到河流折线的最近距离（河流不可通行）。 */
+  distToRiver(x: number, y: number): number {
+    let best = Infinity;
+    for (let i = 0; i + 1 < this.river.length; i++) {
+      const a = this.river[i]!, b = this.river[i + 1]!;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy || 1e-9;
+      let t = ((x - a.x) * dx + (y - a.y) * dy) / len2;
+      t = Math.max(0, Math.min(1, t));
+      const px = a.x + t * dx, py = a.y + t * dy;
+      best = Math.min(best, Math.hypot(x - px, y - py));
+    }
+    return best;
   }
 
   // ---- 生成 ----
   generate(seed: number): void {
     const rnd = mulberry32(seed || 1);
+    this.terrainSeed = (seed || 1) >>> 0;
     this.obstacles = [];
+
+    // 半程溪流：从一条随机边中点进入，2-4 段折向地图内部（止于 ~60% 处），不完全横穿以保连通。
+    this.riverWidth = 0.7 + rnd() * 0.3;
+    const edge = Math.floor(rnd() * 4);
+    let sx: number, sy: number, tx: number, ty: number;
+    if (edge === 0) { sx = 1 + rnd() * (this.W - 2); sy = 0; tx = this.W * 0.5; ty = this.H * 0.55; }
+    else if (edge === 1) { sx = 1 + rnd() * (this.W - 2); sy = this.H; tx = this.W * 0.5; ty = this.H * 0.45; }
+    else if (edge === 2) { sx = 0; sy = 1 + rnd() * (this.H - 2); tx = this.W * 0.55; ty = this.H * 0.5; }
+    else { sx = this.W; sy = 1 + rnd() * (this.H - 2); tx = this.W * 0.45; ty = this.H * 0.5; }
+    const segs = 2 + Math.floor(rnd() * 3);
+    this.river = [{ x: sx, y: sy }];
+    for (let i = 1; i <= segs; i++) {
+      const t = i / segs;
+      const jx = (rnd() - 0.5) * 1.6, jy = (rnd() - 0.5) * 1.6;
+      this.river.push({
+        x: Math.max(0.3, Math.min(this.W - 0.3, sx + (tx - sx) * t + (i < segs ? jx : 0))),
+        y: Math.max(0.3, Math.min(this.H - 0.3, sy + (ty - sy) * t + (i < segs ? jy : 0))),
+      });
+    }
+
     const keepClear = (x: number, y: number, r: number): boolean => {
       for (const s of Object.values(this.stations)) if (Math.hypot(x - s.x, y - s.y) < r) return false;
       for (const s of STARTS) if (Math.hypot(x - s.x, y - s.y) < r) return false;
+      if (this.distToRiver(x, y) < this.riverWidth / 2 + 0.5) return false; // 障碍避开河流
       return true;
     };
-    const target = 6 + Math.floor(rnd() * 4); // 6..9 个障碍
+    const target = 9 + Math.floor(rnd() * 6); // 9..14（多为树，营造林地）
     let tries = 0;
-    while (this.obstacles.length < target && tries < 400) {
+    while (this.obstacles.length < target && tries < 600) {
       tries++;
-      const w = 0.6 + rnd() * 1.1;
-      const h = 0.6 + rnd() * 1.1;
+      const w = 0.55 + rnd() * 0.9;
+      const h = 0.55 + rnd() * 0.9;
       const x = 1 + rnd() * (this.W - 2);
       const y = 1 + rnd() * (this.H - 2);
-      if (!keepClear(x, y, 1.3)) continue;
-      const cand: Aabb = { x, y, w, h };
+      if (!keepClear(x, y, 1.2)) continue;
+      const cand: Aabb = { x, y, w, h, kind: rnd() < 0.75 ? "tree" : "rock" };
       const overlaps = this.obstacles.some(
-        (o) => Math.abs(o.x - x) < (o.w + w) / 2 + 0.6 && Math.abs(o.y - y) < (o.h + h) / 2 + 0.6,
+        (o) => Math.abs(o.x - x) < (o.w + w) / 2 + 0.5 && Math.abs(o.y - y) < (o.h + h) / 2 + 0.5,
       );
       if (overlaps) continue;
       this.obstacles.push(cand);
@@ -174,10 +219,56 @@ export class WorldMap {
     return known / this.occ.length;
   }
 
+  /** 从 from 所在 cell 出发，在非阻挡 cell 上 BFS，返回可达掩码。 */
+  private reachableMask(from: { x: number; y: number }): Uint8Array {
+    const n = this.cols * this.rows;
+    const seen = new Uint8Array(n);
+    const passable = (i: number): boolean => {
+      const c = this.cellCenter(i % this.cols, Math.floor(i / this.cols));
+      return !this.pointBlocked(c.x, c.y, this.robotRadius);
+    };
+    const start = this.cy(from.y) * this.cols + this.cx(from.x);
+    const queue = [start]; seen[start] = 1; // 起点视为可达（机器人就在那）
+    let head = 0;
+    while (head < queue.length) {
+      const cur = queue[head++]!;
+      const cxx = cur % this.cols, cyy = Math.floor(cur / this.cols);
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]] as const) {
+        const nx = cxx + dx, ny = cyy + dy;
+        if (nx < 0 || ny < 0 || nx >= this.cols || ny >= this.rows) continue;
+        const ni = ny * this.cols + nx;
+        if (seen[ni] || !passable(ni)) continue;
+        seen[ni] = 1; queue.push(ni);
+      }
+    }
+    return seen;
+  }
+
+  /** 前沿探索：找最近可达的"已知空地邻接未知"的前沿点；无则返回 null（可达区已探完）。 */
+  nextFrontier(from: { x: number; y: number }): Station | null {
+    const reach = this.reachableMask(from);
+    let best: Station | null = null, bestD = Infinity;
+    for (let cy = 0; cy < this.rows; cy++) {
+      for (let cx = 0; cx < this.cols; cx++) {
+        if (this.get(cx, cy) !== FREE) continue;
+        if (!reach[cy * this.cols + cx]) continue; // 必须可达
+        const nbrUnknown =
+          this.get(cx - 1, cy) === UNKNOWN || this.get(cx + 1, cy) === UNKNOWN ||
+          this.get(cx, cy - 1) === UNKNOWN || this.get(cx, cy + 1) === UNKNOWN;
+        if (!nbrUnknown) continue;
+        const pt = this.cellCenter(cx, cy);
+        const d = Math.hypot(pt.x - from.x, pt.y - from.y);
+        if (d < 0.6) continue; // 太近略过
+        if (d < bestD) { bestD = d; best = pt; }
+      }
+    }
+    return best;
+  }
+
   // ---- A* 避障路径 ----
-  /** 返回从 from 到 to 的航点（不含起点，含 to）。空世界或无障碍时 = [to]（直线）。 */
+  /** 返回从 from 到 to 的航点（不含起点，含 to）。无障碍无河时 = [to]（直线）。 */
   pathfind(from: { x: number; y: number }, to: { x: number; y: number }): Station[] {
-    if (this.obstacles.length === 0) return [{ x: to.x, y: to.y }];
+    if (this.obstacles.length === 0 && this.river.length < 2) return [{ x: to.x, y: to.y }];
     const sc = this.cy(from.y) * this.cols + this.cx(from.x);
     const gc = this.cy(to.y) * this.cols + this.cx(to.x);
     if (sc === gc) return [{ x: to.x, y: to.y }];
@@ -265,11 +356,17 @@ export class WorldMap {
       obstacles: this.obstacles.map((o) => ({ ...o })),
       stations: { ...this.stations },
       occupancy: Array.from(this.occ),
+      terrainSeed: this.terrainSeed,
+      river: this.river.map((p) => ({ ...p })),
+      riverWidth: this.riverWidth,
     };
   }
   load(d: WorldMapData): void {
     this.obstacles = (d.obstacles ?? []).map((o) => ({ ...o }));
     if (d.stations) this.stations = { ...d.stations };
+    this.terrainSeed = d.terrainSeed ?? 0;
+    this.river = (d.river ?? []).map((p) => ({ ...p }));
+    this.riverWidth = d.riverWidth ?? 0.8;
     const occ = d.occupancy ?? [];
     this.occ.fill(UNKNOWN);
     for (let i = 0; i < Math.min(occ.length, this.occ.length); i++) this.occ[i] = occ[i] ?? UNKNOWN;
