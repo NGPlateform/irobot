@@ -20,6 +20,9 @@ edge/ros2_ws/log/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+# uploaded custom VRM avatars + saved maps (runtime, per-deployment)
+apps/robot-sim/state/avatars/
+apps/robot-sim/state/maps/
 
 # secrets — never commit
 .env

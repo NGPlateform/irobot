@@ -80,9 +80,14 @@ Orchestrator `REJECTED`——安全边界不依赖模型。
   （`web/models/avatar.vrm`），零网络、零密钥。中文用 Web Speech，口型为"说话开合"近似（非音素级）。
   引擎经 esbuild 打成 `web/human-vrm.bundle.js`，与 2D/3D/脸部/全身共用同一条 SSE 与控制链路。
 
-  > 内置模型为 VRM 联盟官方参考头像 **Seed-san**（来自 [vrm-c/vrm-specification](https://github.com/vrm-c/vrm-specification)，
+  > 内置默认模型为 VRM 联盟官方参考头像 **Seed-san**（来自 [vrm-c/vrm-specification](https://github.com/vrm-c/vrm-specification)，
   > 许可 [VRM Public License 1.0](https://vrm.dev/licenses/1.0/)，`avatarPermission=everyone`）。
-  > 可替换为任意 `.vrm`：覆盖 `web/models/avatar.vrm` 即可。
+
+  **自定义头像**：VRM 视图头部可**上传任意 `.vrm`**（VRoid Studio / VRoid Hub / Booth 等导出），在
+  **多个头像间下拉切换**，运行时热替换（保留表情/口型/手臂姿态/构图）。上传的头像存服务器
+  `state/avatars/*.vrm`（**不入库**、跨重启保留、所有访问者共享），内置默认不可删、作兜底；选择记入
+  `localStorage`。上传做 **glTF 魔数校验 + 30MB 上限 + 文件名清洗**（防目录穿越）。
+  端点：`GET /avatars`、`GET /avatars/<name>.vrm`、`POST /avatars/upload?name=`、`POST /avatars/delete`。
 
 默认模式按舰队规模自动选：`IROBOT_FLEET=1` → 数字人模式；`>1` → 3D 探索模式。手动切换会记入
 `localStorage`（`irobot-view-mode`）并在下次覆盖默认。数字人头像为 Canvas 2D 绘制，零外部模型、

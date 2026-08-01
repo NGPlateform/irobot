@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Session } from "./session.js";
 import { synthesize } from "./tts.js";
+import { AvatarStore, sanitizeName } from "./avatar-store.js";
 
 const WEB_DIR = new URL("../web/", import.meta.url);
 
@@ -33,6 +34,21 @@ async function readBody(req: IncomingMessage): Promise<string> {
   return Buffer.concat(chunks).toString("utf8");
 }
 
+/** 读二进制请求体（上传 .vrm 用；不转 utf8 以免毁坏二进制），超限抛错。 */
+async function readBinaryBody(req: IncomingMessage, maxBytes: number): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  for await (const c of req) {
+    total += (c as Buffer).length;
+    if (total > maxBytes) throw new Error("too large");
+    chunks.push(c as Buffer);
+  }
+  return Buffer.concat(chunks);
+}
+
+const MAX_AVATAR_BYTES = 30 * 1024 * 1024; // 30MB 上限
+const isGlb = (buf: Buffer): boolean => buf.length > 12 && buf.toString("latin1", 0, 4) === "glTF";
+
 async function serveStatic(res: ServerResponse, file: string): Promise<void> {
   try {
     const buf = await readFile(fileURLToPath(new URL(file, WEB_DIR)));
@@ -44,7 +60,7 @@ async function serveStatic(res: ServerResponse, file: string): Promise<void> {
   }
 }
 
-export function createSimServer(session: Session) {
+export function createSimServer(session: Session, avatarStore?: AvatarStore) {
   return createServer(async (req, res) => {
     const url = req.url ?? "/";
     const method = req.method ?? "GET";
@@ -192,6 +208,48 @@ export function createSimServer(session: Session) {
       } catch {
         res.writeHead(502, { "content-type": "text/plain" }).end("tts failed"); // 客户端回退 Web Speech
       }
+      return;
+    }
+
+    // 自定义 VRM 头像：列表 / 取模型 / 上传 / 删除（内置 Seed-san 走静态 /models/avatar.vrm）
+    if (method === "GET" && url === "/avatars") {
+      const builtin = { id: "builtin", label: "内置 · Seed-san", url: "/models/avatar.vrm", builtin: true };
+      const custom = avatarStore
+        ? (await avatarStore.list()).map((m) => ({ id: m.name, label: m.name, url: `/avatars/${encodeURIComponent(m.name)}.vrm`, builtin: false }))
+        : [];
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify([builtin, ...custom]));
+      return;
+    }
+    if (method === "GET" && url.startsWith("/avatars/")) {
+      const name = sanitizeName(decodeURIComponent(url.slice("/avatars/".length)));
+      if (!avatarStore || !(await avatarStore.has(name))) { res.writeHead(404).end("not found"); return; }
+      const buf = await avatarStore.read(name);
+      res.writeHead(200, { "content-type": "application/octet-stream", "cache-control": "no-store", "content-length": String(buf.length) });
+      res.end(buf);
+      return;
+    }
+    if (method === "POST" && url.startsWith("/avatars/upload")) {
+      if (!avatarStore) { res.writeHead(501).end("{}"); return; }
+      const name = sanitizeName(decodeURIComponent(new URL(url, "http://localhost").searchParams.get("name") ?? ""));
+      let buf: Buffer;
+      try {
+        buf = await readBinaryBody(req, MAX_AVATAR_BYTES);
+      } catch {
+        res.writeHead(413, { "content-type": "application/json" }).end('{"error":"文件过大（上限 30MB）"}');
+        return;
+      }
+      if (!isGlb(buf)) { res.writeHead(400, { "content-type": "application/json" }).end('{"error":"不是有效的 VRM/glb 文件"}'); return; }
+      const saved = await avatarStore.save(name, buf);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify({ name: saved, url: `/avatars/${encodeURIComponent(saved)}.vrm` }));
+      return;
+    }
+    if (method === "POST" && url === "/avatars/delete") {
+      if (!avatarStore) { res.writeHead(501).end("{}"); return; }
+      const name = sanitizeName(String(JSON.parse((await readBody(req)) || "{}").name ?? ""));
+      await avatarStore.remove(name);
+      res.writeHead(202).end("{}");
       return;
     }
 

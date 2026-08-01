@@ -5,6 +5,7 @@ import { createSimServer } from "./server.js";
 import { SqliteLedgerStore, MemoryLedgerStore, type LedgerStore } from "./ledger-store.js";
 import { EdgeClient } from "./edge-client.js";
 import { MapStore } from "./map-store.js";
+import { AvatarStore } from "./avatar-store.js";
 
 const PORT = Number(process.env.PORT ?? 8899);
 
@@ -51,7 +52,11 @@ if (process.env.IROBOT_MAP) {
   }
 }
 
-const server = createSimServer(session);
+// 自定义 VRM 头像存储：state/avatars/*.vrm（上传，不入库）。
+const avatarStore = new AvatarStore(process.env.IROBOT_AVATAR_DIR ?? "./state/avatars");
+console.log(`  头像存储 → ${process.env.IROBOT_AVATAR_DIR ?? "./state/avatars"}`);
+
+const server = createSimServer(session, avatarStore);
 server.listen(PORT, () => {
   console.log(`\n  🤖 iRobot 仿真控制台已启动`);
   console.log(`     打开 http://localhost:${PORT}\n`);

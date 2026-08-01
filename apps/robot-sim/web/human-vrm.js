@@ -22,7 +22,7 @@ function computeEmotion(s) {
   return { expr: "neutral", label: "待命", look: "center" };
 }
 
-function createHuman(container) {
+function createHuman(container, initialUrl) {
   container.style.position = "relative";
 
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -78,46 +78,63 @@ function createHuman(container) {
 
   const loader = new GLTFLoader();
   loader.register((parser) => new VRMLoaderPlugin(parser));
-  loader.load(
-    "/models/avatar.vrm",
-    (gltf) => {
-      vrm = gltf.userData.vrm;
-      try { VRMUtils.removeUnnecessaryVertices(gltf.scene); } catch {}
-      try { VRMUtils.combineSkeletons(gltf.scene); } catch {}
-      vrm.scene.traverse((o) => { o.frustumCulled = false; });
-      scene.add(vrm.scene);
-      // 把默认 T-pose 手臂放到自然下垂，任意画幅都是干净的人物肖像。
-      const hb = vrm.humanoid;
-      if (hb) {
-        const lu = hb.getNormalizedBoneNode("leftUpperArm");
-        const ru = hb.getNormalizedBoneNode("rightUpperArm");
-        if (lu) lu.rotation.z = -1.2;
-        if (ru) ru.rotation.z = 1.2;
-        const ll = hb.getNormalizedBoneNode("leftLowerArm");
-        const rl = hb.getNormalizedBoneNode("rightLowerArm");
-        if (ll) ll.rotation.z = -0.2;
-        if (rl) rl.rotation.z = 0.2;
-      }
-      // 取头骨用于构图与待机微动
-      headBone = vrm.humanoid && vrm.humanoid.getNormalizedBoneNode("head");
-      if (headBone) {
-        const p = new THREE.Vector3();
-        headBone.getWorldPosition(p);
-        targetY = p.y;
-      }
-      // 头肩特写：拉近相机、留头顶余量，裁掉默认 T-pose 手臂，突出"数字人"面部。
-      camera.position.set(0, targetY + 0.04, 0.62);
-      camera.lookAt(0, targetY - 0.02, 0);
-      resize();
-      badge.textContent = "待命";
-    },
-    undefined,
-    (err) => {
-      badge.style.color = "#e5645b";
-      badge.textContent = "数字人模型加载失败";
-      console.error("VRM load error", err);
-    },
-  );
+
+  /** 应用加载好的 VRM：入场景、手臂自然下垂、取头骨、构图。 */
+  function applyVrm(gltf) {
+    vrm = gltf.userData.vrm;
+    try { VRMUtils.removeUnnecessaryVertices(gltf.scene); } catch {}
+    try { VRMUtils.combineSkeletons(gltf.scene); } catch {}
+    vrm.scene.traverse((o) => { o.frustumCulled = false; });
+    scene.add(vrm.scene);
+    // 把默认 T-pose 手臂放到自然下垂，任意画幅都是干净的人物肖像。
+    const hb = vrm.humanoid;
+    if (hb) {
+      const lu = hb.getNormalizedBoneNode("leftUpperArm");
+      const ru = hb.getNormalizedBoneNode("rightUpperArm");
+      if (lu) lu.rotation.z = -1.2;
+      if (ru) ru.rotation.z = 1.2;
+      const ll = hb.getNormalizedBoneNode("leftLowerArm");
+      const rl = hb.getNormalizedBoneNode("rightLowerArm");
+      if (ll) ll.rotation.z = -0.2;
+      if (rl) rl.rotation.z = 0.2;
+    }
+    // 取头骨用于构图与待机微动
+    headBone = vrm.humanoid && vrm.humanoid.getNormalizedBoneNode("head");
+    if (headBone) {
+      const p = new THREE.Vector3();
+      headBone.getWorldPosition(p);
+      targetY = p.y;
+    }
+    // 头肩特写：拉近相机、留头顶余量，裁掉默认 T-pose 手臂，突出"数字人"面部。
+    camera.position.set(0, targetY + 0.04, 0.62);
+    camera.lookAt(0, targetY - 0.02, 0);
+    resize();
+    badge.style.color = "";
+    badge.textContent = "待命";
+  }
+
+  /** 运行时加载/热替换头像：先清掉旧模型再加载新 URL。 */
+  function loadAvatar(url) {
+    if (vrm) {
+      try { scene.remove(vrm.scene); } catch {}
+      try { VRMUtils.deepDispose(vrm.scene); } catch {}
+      vrm = null; headBone = null;
+    }
+    badge.style.color = "";
+    badge.textContent = "加载数字人…";
+    loader.load(
+      url,
+      applyVrm,
+      undefined,
+      (err) => {
+        badge.style.color = "#e5645b";
+        badge.textContent = "数字人模型加载失败";
+        console.error("VRM load error", err);
+      },
+    );
+  }
+
+  loadAvatar(initialUrl || "/models/avatar.vrm");
 
   function frame() {
     const dt = clock.getDelta();
@@ -171,6 +188,7 @@ function createHuman(container) {
     startSpeaking() { st.speaking = true; },
     stopSpeaking() { st.speaking = false; },
     setActive() { /* 单一数字人始终代表活动设备，无需切换 */ },
+    setAvatar(url) { if (url) loadAvatar(url); },
     resize,
     destroy() { if (raf) cancelAnimationFrame(raf); },
   };

@@ -90,7 +90,13 @@
         <section id="stage-human" class="stage hidden">
           <header class="stage-head">
             <h1>VRM 数字人 · <span id="vrm-device">robot-1</span></h1>
-            <span class="tb">@pixiv/three-vrm · VRM 1.0 · 离线内置模型</span>
+            <span class="tb">@pixiv/three-vrm · VRM 1.0</span>
+            <span class="avatar-tools">
+              <select id="avatar-sel" class="mapsel" title="选择头像"></select>
+              <button id="avatar-upload" class="ctl">上传头像</button>
+              <button id="avatar-del" class="ctl" title="删除当前自定义头像">删除</button>
+              <input id="avatar-file" type="file" accept=".vrm" hidden />
+            </span>
           </header>
           <div id="vrm-stage"></div>
         </section>

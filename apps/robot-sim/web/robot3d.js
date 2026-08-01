@@ -6,9 +6,11 @@ const map2d = window.IRobotMap2D.createMap($("map2d"));
 const avatar = window.IRobotDigitalHuman
   ? window.IRobotDigitalHuman.createAvatar($("dh-face"))
   : { update() {}, setListening() {}, setThinking() {}, startSpeaking() {}, stopSpeaking() {}, setView() {} };
+let avatarUrl = "/models/avatar.vrm";
+try { const a = localStorage.getItem("irobot-avatar-url"); if (a) avatarUrl = a; } catch {}
 const human = window.IRobotHuman
-  ? window.IRobotHuman.createHuman($("vrm-stage"))
-  : { update() {}, setListening() {}, setThinking() {}, startSpeaking() {}, stopSpeaking() {}, resize() {} };
+  ? window.IRobotHuman.createHuman($("vrm-stage"), avatarUrl)
+  : { update() {}, setListening() {}, setThinking() {}, startSpeaking() {}, stopSpeaking() {}, resize() {}, setAvatar() {} };
 // 说话/思考/聆听同时驱动 Canvas 数字人（脸部/全身）与 VRM 数字人。
 const talkers = {
   update: (t, s) => { avatar.update(t, s); human.update(t, s); },
@@ -163,6 +165,62 @@ $("map-save").onclick = async () => {
 };
 $("map-load-sel").onchange = (e) => { if (e.target.value) post("/map/load", { name: e.target.value }); };
 refreshMapList();
+
+// —— VRM 自定义头像：列表 / 切换 / 上传 / 删除 ——
+const avatarSel = $("avatar-sel");
+let avatarList = [{ id: "builtin", label: "内置 · Seed-san", url: "/models/avatar.vrm", builtin: true }];
+function currentAvatarBuiltin() { const it = avatarList.find((a) => a.url === avatarUrl); return it ? it.builtin : true; }
+async function refreshAvatars() {
+  try { avatarList = await (await fetch("/avatars")).json(); } catch {}
+  if (!avatarList.some((a) => a.url === avatarUrl)) {
+    avatarUrl = "/models/avatar.vrm";
+    try { localStorage.setItem("irobot-avatar-url", avatarUrl); } catch {}
+    human.setAvatar(avatarUrl);
+  }
+  if (avatarSel) {
+    avatarSel.innerHTML = avatarList.map((a) => `<option value="${a.url}">${a.label}</option>`).join("");
+    avatarSel.value = avatarUrl;
+  }
+  const del = $("avatar-del"); if (del) del.disabled = currentAvatarBuiltin();
+}
+if (avatarSel) {
+  avatarSel.onchange = () => {
+    avatarUrl = avatarSel.value;
+    try { localStorage.setItem("irobot-avatar-url", avatarUrl); } catch {}
+    human.setAvatar(avatarUrl);
+    $("avatar-del").disabled = currentAvatarBuiltin();
+  };
+}
+$("avatar-upload").onclick = () => $("avatar-file").click();
+$("avatar-file").onchange = async () => {
+  const f = $("avatar-file").files && $("avatar-file").files[0];
+  if (!f) return;
+  const name = (f.name.replace(/\.vrm$/i, "").replace(/[^0-9a-zA-Z一-龥_-]/g, "").slice(0, 40)) || "avatar";
+  try {
+    const r = await fetch("/avatars/upload?name=" + encodeURIComponent(name), { method: "POST", body: f });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) { addMsg("agent", "头像上传失败：" + (j.error || r.status)); }
+    else {
+      await refreshAvatars();
+      avatarUrl = j.url; if (avatarSel) avatarSel.value = j.url;
+      try { localStorage.setItem("irobot-avatar-url", avatarUrl); } catch {}
+      human.setAvatar(avatarUrl);
+      $("avatar-del").disabled = currentAvatarBuiltin();
+    }
+  } catch { addMsg("agent", "头像上传出错。"); }
+  $("avatar-file").value = "";
+};
+$("avatar-del").onclick = async () => {
+  if (currentAvatarBuiltin()) return;
+  const it = avatarList.find((a) => a.url === avatarUrl);
+  if (!it) return;
+  await post("/avatars/delete", { name: it.id });
+  avatarUrl = "/models/avatar.vrm";
+  try { localStorage.setItem("irobot-avatar-url", avatarUrl); } catch {}
+  human.setAvatar(avatarUrl);
+  await refreshAvatars();
+};
+refreshAvatars();
 
 function onAction(ev, deviceId) {
   R.setState(deviceId, ev.state);
